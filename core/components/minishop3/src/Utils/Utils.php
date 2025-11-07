@@ -5,62 +5,17 @@ namespace MiniShop3\Utils;
 use MiniShop3\MiniShop3;
 use MODX\Revolution\Mail\modMail;
 use MODX\Revolution\Mail\modPHPMailer;
-use MODX\Revolution\modSystemSetting;
 use MODX\Revolution\modX;
 
 class Utils
 {
-    private $modx;
-    private $ms3;
+    private modX $modx;
+    private MiniShop3 $ms3;
 
     public function __construct(MiniShop3 $ms3)
     {
         $this->ms3 = $ms3;
         $this->modx = $this->ms3->modx;
-    }
-
-    /**
-     * General method to get JSON settings
-     *
-     * @param $key
-     *
-     * @return array|mixed
-     */
-    public function getSetting($key)
-    {
-        $setting = $this->modx->getObject(modSystemSetting::class, ['key' => $key]);
-        if (!$setting) {
-            $setting = $this->modx->newObject(modSystemSetting::class);
-            $setting->set('key', $key);
-            $setting->set('value', '[]');
-            $setting->save();
-        }
-
-        $value = json_decode($setting->get('value'), true);
-        if (!is_array($value)) {
-            $value = [];
-            $setting->set('value', $value);
-            $setting->save();
-        }
-
-        return $value;
-    }
-
-    /**
-     * General method to update JSON settings
-     *
-     * @param $key
-     * @param $value
-     */
-    public function updateSetting($key, $value)
-    {
-        $setting = $this->modx->getObject(modSystemSetting::class, ['key' => $key]);
-        if (!$setting) {
-            $setting = $this->modx->newObject(modSystemSetting::class);
-            $setting->set('key', $key);
-        }
-        $setting->set('value', json_encode($value));
-        $setting->save();
     }
 
     /**

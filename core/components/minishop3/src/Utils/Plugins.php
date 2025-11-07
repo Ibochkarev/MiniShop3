@@ -3,17 +3,20 @@
 namespace MiniShop3\Utils;
 
 use MiniShop3\MiniShop3;
+use MiniShop3\Services\SystemSettingService;
 use MODX\Revolution\modX;
 
 class Plugins
 {
-    private $modx;
-    private $ms3;
+    private modX $modx;
+    private MiniShop3 $ms3;
+    private SystemSettingService $systemSettingService;
 
     public function __construct(MiniShop3 $ms3)
     {
         $this->ms3 = $ms3;
         $this->modx = $this->ms3->modx;
+        $this->systemSettingService = new SystemSettingService($this->modx);
     }
 
     /**
@@ -22,12 +25,12 @@ class Plugins
      * @param $name
      * @param $controller
      */
-    public function add($name, $controller)
+    public function add($name, $controller): void
     {
-        $plugins = $this->ms3->utils->getSetting('ms3_plugins');
+        $plugins = $this->systemSettingService->getSettingValue('ms3_plugins');
         $plugins[strtolower($name)] = $controller;
 
-        $this->ms3->utils->updateSetting('ms3_plugins', $plugins);
+        $this->systemSettingService->setSettingValue('ms3_plugins', $plugins);
     }
 
     /**
@@ -35,21 +38,21 @@ class Plugins
      *
      * @param $name
      */
-    public function remove($name)
+    public function remove($name): void
     {
-        $plugins = $this->ms3->utils->getSetting('ms3_plugins');
+        $plugins = $this->systemSettingService->getSettingValue('ms3_plugins');
         unset($plugins[strtolower($name)]);
-        $this->ms3->utils->updateSetting('ms3_plugins', $plugins);
+        $this->systemSettingService->setSettingValue('ms3_plugins', $plugins);
     }
 
     /**
      * Get all registered plugins
      *
-     * @return array|mixed
+     * @return array
      */
-    public function get()
+    public function get(): array
     {
-        return $this->ms3->utils->getSetting('ms3_plugins');
+        return $this->systemSettingService->getSettingValue('ms3_plugins');
     }
 
     /**
@@ -57,7 +60,7 @@ class Plugins
      *
      * @return array
      */
-    public function load()
+    public function load(): array
     {
         $output = [];
         // Original plugins

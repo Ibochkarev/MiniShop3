@@ -6,6 +6,7 @@ use MiniShop3\Controllers\Cart\Cart;
 use MiniShop3\Controllers\Delivery\Delivery;
 use MiniShop3\Controllers\Order\Order;
 use MiniShop3\Controllers\Customer\Customer;
+use MiniShop3\Services\SystemSettingService;
 use MODX\Revolution\modX;
 use MiniShop3\MiniShop3;
 
@@ -19,11 +20,13 @@ class Services
      * @var MiniShop3
      */
     private $ms3;
+    private SystemSettingService $systemSettingService;
 
     public function __construct(MiniShop3 $ms3)
     {
         $this->ms3 = $ms3;
         $this->modx = $this->ms3->modx;
+        $this->systemSettingService = new SystemSettingService($this->modx);
     }
 
     /**
@@ -147,7 +150,7 @@ class Services
      */
     public function add($type, $name, $controller)
     {
-        $services = $this->ms3->utils->getSetting('ms3_services');
+        $services = $this->systemSettingService->getSettingValue('ms3_services');
         $type = strtolower($type);
         $name = strtolower($name);
         if (!isset($services[$type])) {
@@ -156,7 +159,7 @@ class Services
             $services[$type][$name] = $controller;
         }
 
-        $this->ms3->utils->updateSetting('ms3_services', $services);
+        $this->systemSettingService->setSettingValue('ms3_services', $services);
     }
 
     /**
@@ -167,11 +170,11 @@ class Services
      */
     public function remove($type, $name)
     {
-        $services = $this->ms3->utils->getSetting('ms3_services');
+        $services = $this->systemSettingService->getSettingValue('ms3_services');
         $type = strtolower($type);
         $name = strtolower($name);
         unset($services[$type][$name]);
-        $this->ms3->utils->updateSetting('ms3_services', $services);
+        $this->systemSettingService->setSettingValue('ms3_services', $services);
     }
 
     /**
@@ -183,7 +186,7 @@ class Services
      */
     public function get($type = '')
     {
-        $services = $this->ms3->utils->getSetting('ms3_services');
+        $services = $this->systemSettingService->getSettingValue('ms3_services');
 
         if (is_array($services)) {
             return !empty($type) && isset($services[$type])
