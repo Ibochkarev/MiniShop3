@@ -22,45 +22,6 @@ class VendorService
     }
 
     /**
-     * Удаление производителя с обнулением связей в товарах
-     *
-     * При удалении производителя обнуляет поле vendor_id у всех товаров,
-     * которые были связаны с этим производителем, чтобы избежать
-     * битых связей в базе данных
-     *
-     * @param msVendor $vendor
-     * @param array $ancestors
-     * @return bool
-     */
-    public function removeVendor(msVendor $vendor, array $ancestors = []): bool
-    {
-        $vendorId = $vendor->get('id');
-
-        // Обнуляем vendor_id у всех товаров этого производителя
-        $query = $this->modx->newQuery(msProductData::class);
-        $query->command('UPDATE');
-        $query->set(['vendor_id' => 0]);
-        $query->where(['vendor_id' => $vendorId]);
-
-        if ($query->prepare() && $query->stmt->execute()) {
-            // Логируем количество обновленных товаров
-            $affectedRows = $query->stmt->rowCount();
-            if ($affectedRows > 0) {
-                $this->modx->log(
-                    modX::LOG_LEVEL_INFO,
-                    sprintf(
-                        'VendorService: Обнулен vendor_id у %d товаров при удалении производителя ID=%d',
-                        $affectedRows,
-                        $vendorId
-                    )
-                );
-            }
-        }
-
-        return true;
-    }
-
-    /**
      * Получить статистику по производителю
      *
      * Возвращает количество товаров, привязанных к производителю

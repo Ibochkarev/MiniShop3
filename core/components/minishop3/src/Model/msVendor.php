@@ -2,7 +2,7 @@
 
 namespace MiniShop3\Model;
 
-use MiniShop3\Services\Vendor\VendorService;
+use MiniShop3\ModelLifecycle\VendorLifecycleHandler;
 use xPDO\Om\xPDOSimpleObject;
 
 /**
@@ -23,35 +23,30 @@ use xPDO\Om\xPDOSimpleObject;
  */
 class msVendor extends xPDOSimpleObject
 {
-    /** @var VendorService|null */
-    protected $vendorService;
+    protected ?VendorLifecycleHandler $lifecycleHandler;
 
     /**
      * @param array $ancestors
      *
      * @return bool
      */
-    public function remove(array $ancestors = [])
+    public function remove(array $ancestors = []): bool
     {
-        $this->getVendorService()->removeVendor($this, $ancestors);
+        $this->getLifecycleHandler()->beforeRemove($this, $ancestors);
+
         return parent::remove($ancestors);
     }
 
-    /**
-     * Получить сервис производителей (lazy loading)
-     *
-     * @return VendorService
-     */
-    protected function getVendorService(): VendorService
+    protected function getLifecycleHandler(): VendorLifecycleHandler
     {
-        if ($this->vendorService === null) {
-            if ($this->xpdo->services->has('ms3_vendor_service')) {
-                $this->vendorService = $this->xpdo->services->get('ms3_vendor_service');
+        if ($this->lifecycleHandler === null) {
+            if ($this->xpdo->services->has('ms3_vendor_lifecycle_handler')) {
+                $this->lifecycleHandler = $this->xpdo->services->get('ms3_vendor_lifecycle_handler');
             } else {
-                $this->vendorService = new VendorService($this->xpdo);
+                $this->lifecycleHandler = new VendorLifecycleHandler($this->xpdo);
             }
         }
 
-        return $this->vendorService;
+        return $this->lifecycleHandler;
     }
 }
