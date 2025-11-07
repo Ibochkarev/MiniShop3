@@ -14,12 +14,8 @@ use MODX\Revolution\modX;
  */
 class VendorService
 {
-    /** @var modX */
-    protected $modx;
+    protected modX $modx;
 
-    /**
-     * @param modX $modx
-     */
     public function __construct(modX $modx)
     {
         $this->modx = $modx;
@@ -112,5 +108,30 @@ class VendorService
             'products_count' => $stats['total_products'],
             'warnings' => $warnings,
         ];
+    }
+
+    public function getOrCreateVendor(int $id, string $newName): msVendor
+    {
+        // Сначала ищем по ID (если передан валидный ID)
+        if ($id > 0) {
+            $vendor = $this->modx->getObject(msVendor::class, $id);
+            if ($vendor) {
+                return $vendor;
+            }
+        }
+
+        // Ищем по имени
+        if (!empty($name)) {
+            $vendor = $this->modx->getObject(msVendor::class, ['name' => $name]);
+            if ($vendor) {
+                return $vendor;
+            }
+        }
+
+        $vendor = $this->modx->newObject(msVendor::class);
+        $vendor->set('name', $newName);
+        $vendor->save();
+
+        return $vendor;
     }
 }

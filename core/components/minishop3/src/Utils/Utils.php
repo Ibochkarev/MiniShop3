@@ -187,24 +187,4 @@ class Utils
         }
         $mail->reset();
     }
-
-    public static function getVendorId($modx, $name)
-    {
-        $criteria = [
-            'id' => $name,
-            'OR:name:=' => $name
-        ];
-
-        $vendor = $modx->getObject('MiniShop3\Model\msVendor', $criteria);
-
-        if ($vendor) {
-            return $vendor->get('id');
-        }
-
-        $vendor = $modx->newObject('MiniShop3\Model\msVendor');
-        $vendor->set('name', $name);
-        $vendor->save();
-
-        return $vendor->get('id');
-    }
 }

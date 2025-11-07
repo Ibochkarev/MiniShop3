@@ -3,8 +3,7 @@
 namespace MiniShop3\Processors\Product;
 
 use MiniShop3\Model\msProduct;
-use MiniShop3\Model\msVendor;
-use MiniShop3\Utils\Utils;
+use MiniShop3\Services\Vendor\VendorService;
 use MODX\Revolution\Processors\Resource\Create as CreateProcessor;
 
 class Create extends CreateProcessor
@@ -59,10 +58,11 @@ class Create extends CreateProcessor
         $this->setProperty('options', $options);
 
         if (!empty($properties['vendor_id'])) {
-            $vendor_id = Utils::getVendorId($this->modx, $properties['vendor_id']);
-            if ($vendor_id) {
-                $this->setProperty('vendor_id', $vendor_id);
-            }
+            $vendor = (new VendorService($this->modx))->getOrCreateVendor(
+                id: filter_var($properties['vendor_id'], FILTER_VALIDATE_INT) ?: 0,
+                newName: $properties['vendor_id']
+            );
+            $this->setProperty('vendor_id', $vendor->get('id'));
         }
 
         return parent::beforeSet();
