@@ -71,28 +71,30 @@ class VendorService
         ];
     }
 
-    public function getOrCreateVendor(int $id, string $newName): msVendor
+    public function getOrCreateVendor(int|string $idOrName): msVendor
     {
-        // Сначала ищем по ID (если передан валидный ID)
-        if ($id > 0) {
-            $vendor = $this->modx->getObject(msVendor::class, $id);
+        // Если передан числовой ID
+        if (is_numeric($idOrName)) {
+            $vendor = $this->modx->getObject(msVendor::class, (int)$idOrName);
             if ($vendor) {
                 return $vendor;
             }
+            // Не найден - это ошибка, не создаем с именем "5"
+            throw new \RuntimeException("Vendor with ID {$idOrName} not found");
         }
 
-        // Ищем по имени
-        if (!empty($name)) {
-            $vendor = $this->modx->getObject(msVendor::class, ['name' => $name]);
-            if ($vendor) {
-                return $vendor;
-            }
+        // Если передано текстовое имя
+        $vendor = $this->modx->getObject(msVendor::class, ['name' => $idOrName]);
+        if ($vendor) {
+            return $vendor;
         }
 
+        // Создаем нового
         $vendor = $this->modx->newObject(msVendor::class);
-        $vendor->set('name', $newName);
+        $vendor->set('name', (string)$idOrName);
         $vendor->save();
 
         return $vendor;
     }
+
 }

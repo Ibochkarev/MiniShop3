@@ -52,11 +52,15 @@ class Update extends UpdateProcessor
         }
 
         if (!empty($properties['vendor_id'])) {
-            $vendor = (new VendorService($this->modx))->getOrCreateVendor(
-                id: filter_var($properties['vendor_id'], FILTER_VALIDATE_INT) ?: 0,
-                newName: $properties['vendor_id']
-            );
-            $this->setProperty('vendor_id', $vendor->get('id'));
+            try {
+                $vendor = (new VendorService($this->modx))->getOrCreateVendor(
+                    $properties['vendor_id']
+                );
+                $this->setProperty('vendor_id', $vendor->get('id'));
+            } catch (\RuntimeException $e) {
+                $this->addFieldError('vendor_id', $e->getMessage());
+                return false;
+            }
         }
 
         return parent::beforeSet();
