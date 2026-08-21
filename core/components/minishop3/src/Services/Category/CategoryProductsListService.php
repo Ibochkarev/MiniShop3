@@ -9,12 +9,15 @@ use MiniShop3\Model\msProduct;
 use MiniShop3\Model\msProductData;
 use MiniShop3\Model\msProductOption;
 use MiniShop3\Services\Grid\GridOptionColumnResolver;
+use MiniShop3\Services\Grid\GridRelationColumnResolver;
 use MiniShop3\Services\Grid\OptionColumnSpec;
+use MiniShop3\Services\Grid\RelationColumnSpec;
 use MODX\Revolution\modX;
 use xPDO\Om\xPDOQuery;
 
 /**
- * Category products grid: SQL list query with optional option columns (JOIN + GROUP BY + GROUP_CONCAT).
+ * Category products grid: SQL list query with optional option columns (JOIN + GROUP BY + GROUP_CONCAT)
+ * and relation columns (JOIN + SELECT from related tables).
  *
  * Multi-value options appear as one string (MySQL GROUP_CONCAT). For very large sets, server
  * `group_concat_max_len` may truncate the result.
@@ -43,16 +46,17 @@ final class CategoryProductsListService
         string $sortDir,
     ): array {
         $optionSpecs = GridOptionColumnResolver::resolve($gridFields);
+        $relationSpecs = GridRelationColumnResolver::resolve($this->modx, $gridFields);
 
-        $c = $this->buildProductListQuery($categoryId, $params, $nested, $optionSpecs);
+        $c = $this->buildProductListQuery($categoryId, $params, $nested, $optionSpecs, $relationSpecs);
 
-        $countQuery = $this->buildProductListQuery($categoryId, $params, $nested, $optionSpecs);
+        $countQuery = $this->buildProductListQuery($categoryId, $params, $nested, $optionSpecs, $relationSpecs);
         $countQuery->select('COUNT(DISTINCT msProduct.id)');
         $countQuery->prepare();
         $countQuery->stmt->execute();
         $total = (int) $countQuery->stmt->fetchColumn();
 
-        $sortField = $this->mapSortField($sortBy, $optionSpecs);
+        $sortField = $this->mapSortField($sortBy, $optionSpecs, $relationSpecs);
         $c->sortby($sortField, $sortDir);
         $c->limit($limit, $start);
 
@@ -73,6 +77,9 @@ final class CategoryProductsListService
         foreach ($optionSpecs as $spec) {
             $selectParts[] = $this->aggregateOptionValueSql($spec->alias) . " AS `{$spec->fieldName}`";
         }
+        foreach ($relationSpecs as $spec) {
+            $selectParts[] = $spec->selectExpression();
+        }
         // xPDOQuery::select() declares string, accepts both at runtime but PHPStan is strict.
         $c->select(implode(', ', $selectParts));
         if ($optionSpecs !== []) {
@@ -83,9 +90,10 @@ final class CategoryProductsListService
         $rows = $c->stmt->execute() ? $c->stmt->fetchAll(\PDO::FETCH_ASSOC) : [];
 
         $optionFieldNames = array_map(static fn (OptionColumnSpec $s) => $s->fieldName, $optionSpecs);
+        $relationFieldNames = array_map(static fn (RelationColumnSpec $s) => $s->fieldName, $relationSpecs);
         $results = [];
         foreach ($rows as $row) {
-            $results[] = $this->formatProductRow($row, $nested, $optionFieldNames);
+            $results[] = $this->formatProductRow($row, $nested, $optionFieldNames, $relationFieldNames);
         }
 
         return [
@@ -103,13 +111,19 @@ final class CategoryProductsListService
     }
 
     /**
-     * @param list<OptionColumnSpec> $optionSpecs
+     * @param list<OptionColumnSpec>    $optionSpecs
+     * @param list<RelationColumnSpec>  $relationSpecs
      */
-    private function mapSortField(string $sortBy, array $optionSpecs): string
+    private function mapSortField(string $sortBy, array $optionSpecs, array $relationSpecs): string
     {
         foreach ($optionSpecs as $spec) {
             if ($spec->fieldName === $sortBy) {
                 return $this->aggregateOptionValueSql($spec->alias);
+            }
+        }
+        foreach ($relationSpecs as $spec) {
+            if ($spec->fieldName === $sortBy) {
+                return $spec->sortExpression();
             }
         }
         $productFields = ['id', 'pagetitle', 'menuindex', 'published', 'createdon', 'editedon'];
@@ -125,10 +139,16 @@ final class CategoryProductsListService
     }
 
     /**
-     * @param list<OptionColumnSpec> $optionSpecs
+     * @param list<OptionColumnSpec>    $optionSpecs
+     * @param list<RelationColumnSpec>  $relationSpecs
      */
-    private function buildProductListQuery(int $categoryId, array $params, bool $nested, array $optionSpecs): xPDOQuery
-    {
+    private function buildProductListQuery(
+        int $categoryId,
+        array $params,
+        bool $nested,
+        array $optionSpecs,
+        array $relationSpecs,
+    ): xPDOQuery {
         $query = trim((string) ($params['query'] ?? ''));
         $c = $this->modx->newQuery(msProduct::class);
         $c->innerJoin(msProductData::class, 'Data', 'msProduct.id = Data.id');
@@ -143,8 +163,19 @@ final class CategoryProductsListService
             );
         }
 
+        foreach (GridRelationColumnResolver::uniqueJoins($relationSpecs) as $spec) {
+            $c->leftJoin($spec->modelClass, $spec->alias, $spec->joinCondition());
+        }
+
         $c->where(['msProduct.class_key' => msProduct::class]);
-        $c->where(['msProduct.parent:IN' => $this->getAllowedProductParentCategoryIds($categoryId, $nested)]);
+
+        $scopeService = $this->getCategoryProductScopeService();
+        if ($nested) {
+            $categoryIds = $this->treeService()->productParentIds($categoryId, true);
+            $scopeService->applyProductCategoryScope($c, $categoryIds);
+        } else {
+            $scopeService->applyProductCategoryScope($c, [$categoryId]);
+        }
 
         if ($query !== '') {
             $c->where([
@@ -195,6 +226,13 @@ final class CategoryProductsListService
             }
         }
 
+        foreach ($relationSpecs as $spec) {
+            $paramKey = 'filter_' . $spec->fieldName;
+            if (isset($params[$paramKey]) && $params[$paramKey] !== '') {
+                $c->where([$spec->sortExpression() . ':LIKE' => "%{$params[$paramKey]}%"]);
+            }
+        }
+
         if (!isset($params['deleted']) || $params['deleted'] === '') {
             $c->where(['msProduct.deleted' => 0]);
         }
@@ -226,14 +264,11 @@ final class CategoryProductsListService
      */
     public function getAllowedProductParentCategoryIds(int $categoryId, bool $nested): array
     {
-        if (!$nested) {
-            return [$categoryId];
-        }
-
-        $ids = $this->treeService()->getDescendantCategoryIds($categoryId);
-        $ids[] = $categoryId;
-
-        return $ids;
+        return CategoryProductScopePolicy::allowedParentCategoryIds(
+            $categoryId,
+            $nested,
+            $nested ? $this->treeService()->getDescendantCategoryIds($categoryId) : []
+        );
     }
 
     /**
@@ -255,12 +290,17 @@ final class CategoryProductsListService
     }
 
     /**
-     * @param list<string> $optionFieldNames Allowed option field names (whitelist)
+     * @param list<string> $optionFieldNames   Allowed option field names (whitelist)
+     * @param list<string> $relationFieldNames Allowed relation field names (whitelist)
      *
      * @return array<string, mixed>
      */
-    private function formatProductRow(array $row, bool $nested, array $optionFieldNames): array
-    {
+    private function formatProductRow(
+        array $row,
+        bool $nested,
+        array $optionFieldNames,
+        array $relationFieldNames,
+    ): array {
         $id = (int) $row['id'];
         $data = [
             'id' => $id,
@@ -288,9 +328,9 @@ final class CategoryProductsListService
             'preview_url' => $this->modx->makeUrl($id, '', '', 'full'),
         ];
 
-        $allowedOptionFields = array_flip($optionFieldNames);
+        $allowedExtraFields = array_flip(array_merge($optionFieldNames, $relationFieldNames));
         foreach ($row as $key => $value) {
-            if (!array_key_exists($key, $data) && isset($allowedOptionFields[$key])) {
+            if (!array_key_exists($key, $data) && isset($allowedExtraFields[$key])) {
                 $data[$key] = $value;
             }
         }
@@ -303,5 +343,17 @@ final class CategoryProductsListService
         }
 
         return $data;
+    }
+
+    private function getCategoryProductScopeService(): CategoryProductScopeService
+    {
+        if ($this->modx->services->has('ms3_category_product_scope')) {
+            $service = $this->modx->services->get('ms3_category_product_scope');
+            if ($service instanceof CategoryProductScopeService) {
+                return $service;
+            }
+        }
+
+        return new CategoryProductScopeService($this->modx);
     }
 }

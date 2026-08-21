@@ -2,8 +2,11 @@
 
 namespace MiniShop3\Controllers\Api\Web;
 
+use MiniShop3\Router\ApiErrorCode;
+use MiniShop3\Router\DomainMs2Response;
 use MiniShop3\Router\HttpStatus;
 use MiniShop3\Router\Response;
+use MiniShop3\Services\Api\WebApiContextResolver;
 use MODX\Revolution\modX;
 
 /**
@@ -29,9 +32,9 @@ class CartController
      * POST /api/v1/cart/add
      *
      * @param array $params URL parameters
-     * @return array Response ['success' => bool, 'message' => '', 'data' => [...]]
+     * @return Response
      */
-    public function add(array $params = []): array
+    public function add(array $params = []): Response
     {
         $input = $this->getRequestData();
 
@@ -46,7 +49,7 @@ class CartController
 
         $ms3 = $this->modx->services->get('ms3');
         $cart = $ms3->cart;
-        $cart->initialize($this->modx->context->key, $token);
+        $cart->initialize($this->pageContextKey(), $token);
 
         $result = $cart->add($id, $count, $options);
 
@@ -58,9 +61,9 @@ class CartController
      * POST /api/v1/cart/change
      *
      * @param array $params URL parameters
-     * @return array Response ['success' => bool, 'message' => '', 'data' => [...]]
+     * @return Response
      */
-    public function change(array $params = []): array
+    public function change(array $params = []): Response
     {
         $input = $this->getRequestData();
 
@@ -76,12 +79,12 @@ class CartController
             return Response::error(
                 $this->modx->lexicon('ms3_err_product_key_required'),
                 HttpStatus::BAD_REQUEST
-            )->getData();
+            );
         }
 
         $ms3 = $this->modx->services->get('ms3');
         $cart = $ms3->cart;
-        $cart->initialize($this->modx->context->key, $token);
+        $cart->initialize($this->pageContextKey(), $token);
 
         $result = $cart->change($product_key, $count);
 
@@ -93,9 +96,9 @@ class CartController
      * POST /api/v1/cart/change-option
      *
      * @param array $params URL parameters
-     * @return array Response ['success' => bool, 'message' => '', 'data' => [...]]
+     * @return Response
      */
-    public function changeOption(array $params = []): array
+    public function changeOption(array $params = []): Response
     {
         $input = $this->getRequestData();
 
@@ -111,19 +114,19 @@ class CartController
             return Response::error(
                 $this->modx->lexicon('ms3_err_product_key_required'),
                 HttpStatus::BAD_REQUEST
-            )->getData();
+            );
         }
 
         if (!is_array($options) || $options === []) {
             return Response::error(
                 $this->modx->lexicon('ms3_cart_change_options_error'),
                 HttpStatus::BAD_REQUEST
-            )->getData();
+            );
         }
 
         $ms3 = $this->modx->services->get('ms3');
         $cart = $ms3->cart;
-        $cart->initialize($this->modx->context->key, $token);
+        $cart->initialize($this->pageContextKey(), $token);
 
         $result = $cart->changeOption($product_key, $options);
 
@@ -135,9 +138,9 @@ class CartController
      * POST /api/v1/cart/remove
      *
      * @param array $params URL parameters
-     * @return array Response ['success' => bool, 'message' => '', 'data' => [...]]
+     * @return Response
      */
-    public function remove(array $params = []): array
+    public function remove(array $params = []): Response
     {
         $input = $this->getRequestData();
 
@@ -152,12 +155,12 @@ class CartController
             return Response::error(
                 $this->modx->lexicon('ms3_err_product_key_required'),
                 HttpStatus::BAD_REQUEST
-            )->getData();
+            );
         }
 
         $ms3 = $this->modx->services->get('ms3');
         $cart = $ms3->cart;
-        $cart->initialize($this->modx->context->key, $token);
+        $cart->initialize($this->pageContextKey(), $token);
 
         $result = $cart->remove($product_key);
 
@@ -169,9 +172,9 @@ class CartController
      * GET /api/v1/cart/get
      *
      * @param array $params URL parameters
-     * @return array Response ['success' => bool, 'message' => '', 'data' => [...]]
+     * @return Response
      */
-    public function get(array $params = []): array
+    public function get(array $params = []): Response
     {
         $token = $_REQUEST['ms3_token'] ?? '';
 
@@ -181,7 +184,7 @@ class CartController
 
         $ms3 = $this->modx->services->get('ms3');
         $cart = $ms3->cart;
-        $cart->initialize($this->modx->context->key, $token);
+        $cart->initialize($this->pageContextKey(), $token);
 
         $result = $cart->get();
 
@@ -193,9 +196,9 @@ class CartController
      * POST /api/v1/cart/clean
      *
      * @param array $params URL parameters
-     * @return array Response ['success' => bool, 'message' => '', 'data' => [...]]
+     * @return Response
      */
-    public function clean(array $params = []): array
+    public function clean(array $params = []): Response
     {
         $token = $_REQUEST['ms3_token'] ?? '';
 
@@ -205,7 +208,7 @@ class CartController
 
         $ms3 = $this->modx->services->get('ms3');
         $cart = $ms3->cart;
-        $cart->initialize($this->modx->context->key, $token);
+        $cart->initialize($this->pageContextKey(), $token);
 
         $result = $cart->clean();
 
@@ -213,14 +216,23 @@ class CartController
     }
 
     /**
-     * @return array{success: bool, message: string, code: int, errors: mixed}
+     * @return Response
      */
-    private function tokenRequiredError(): array
+    private function tokenRequiredError(): Response
     {
-        return Response::error(
+        return Response::errorWithCode(
+            ApiErrorCode::TOKEN_REQUIRED,
             $this->modx->lexicon('ms3_customer_err_token_required'),
             HttpStatus::UNAUTHORIZED
-        )->getData();
+        );
+    }
+
+    /**
+     * Page/API lexicon context (never dereference null $modx->context).
+     */
+    private function pageContextKey(): string
+    {
+        return WebApiContextResolver::liveContextKey($this->modx);
     }
 
     /**
@@ -242,34 +254,29 @@ class CartController
     }
 
     /**
-     * Transform Cart response to API format
+     * Transform Cart domain MS2-array to Web API Response (#572).
      *
-     * @param array $result Response from Cart controller
-     * @return array Response in API format ['success' => bool, 'message' => '', 'data' => [...]]
+     * @param array<string, mixed> $result
+     * @return Response
      */
-    protected function transformResponse(array $result): array
+    protected function transformResponse(array $result): Response
     {
         $input = $this->getRequestData();
         $renderTokens = $input['render'] ?? null;
 
-        if (!empty($renderTokens) && $result['success']) {
+        if (!empty($renderTokens) && !empty($result['success'])) {
             $customerToken = $_REQUEST['ms3_token'] ?? '';
 
             $renderedHtml = $this->renderSnippets($renderTokens, $customerToken);
-            if (!empty($renderedHtml)) {
+            if (!empty($renderedHtml) && is_array($result['data'] ?? null)) {
                 $result['data']['render'] = $renderedHtml;
             }
         }
 
-        if ($result['success']) {
-            return Response::success($result['data'], $result['message'] ?? '')->getData();
-        } else {
-            return Response::error(
-                $result['message'] ?? $this->modx->lexicon('ms3_err_unknown'),
-                HttpStatus::BAD_REQUEST,
-                $result['data'] ?? []
-            )->getData();
-        }
+        return DomainMs2Response::fromDomain(
+            $result,
+            $this->modx->lexicon('ms3_err_unknown')
+        );
     }
 
     /**

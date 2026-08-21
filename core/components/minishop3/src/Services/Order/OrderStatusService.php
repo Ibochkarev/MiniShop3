@@ -4,8 +4,6 @@ namespace MiniShop3\Services\Order;
 
 use MiniShop3\MiniShop3;
 use MiniShop3\Model\msOrder;
-use MiniShop3\Model\msPayment;
-use MiniShop3\Services\Payment\PaymentService;
 use MiniShop3\Model\msOrderAddress;
 use MiniShop3\Model\msOrderStatus as msOrderStatusModel;
 use MiniShop3\Model\msCustomer;
@@ -104,13 +102,9 @@ class OrderStatusService
         );
 
         if ($oldStatus) {
-            if ($oldStatus->get('final')) {
-                return $this->modx->lexicon('ms3_err_status_final');
-            }
-            if ($oldStatus->get('fixed')) {
-                if ($status->get('position') <= $oldStatus->get('position')) {
-                    return $this->modx->lexicon('ms3_err_status_fixed');
-                }
+            $transitionError = $this->validateStatusTransition($oldStatus, $status);
+            if ($transitionError !== null) {
+                return $transitionError;
             }
         }
 
@@ -143,6 +137,11 @@ class OrderStatusService
             if ($msOrder->get('status_id') == $statusId) {
                 return $this->modx->lexicon('ms3_err_status_same');
             }
+
+            $transitionError = $this->validateStatusTransition($oldStatus, $status);
+            if ($transitionError !== null) {
+                return $transitionError;
+            }
         }
 
         $msOrder->set('status_id', $statusId);
@@ -171,6 +170,28 @@ class OrderStatusService
         }
 
         return true;
+    }
+
+    /**
+     * Validate transition from old status to new (final/fixed rules).
+     */
+    protected function validateStatusTransition(
+        ?msOrderStatusModel $oldStatus,
+        msOrderStatusModel $newStatus
+    ): ?string {
+        if (!$oldStatus) {
+            return null;
+        }
+
+        if ($oldStatus->get('final')) {
+            return $this->modx->lexicon('ms3_err_status_final');
+        }
+
+        if ($oldStatus->get('fixed') && $newStatus->get('position') <= $oldStatus->get('position')) {
+            return $this->modx->lexicon('ms3_err_status_fixed');
+        }
+
+        return null;
     }
 
     /**
@@ -396,29 +417,5 @@ class OrderStatusService
         }
 
         return $lang;
-    }
-
-    /**
-     * Get payment link for order
-     */
-    protected function getPaymentLink(mixed $msPayment, msOrder $msOrder): string
-    {
-        if (!$msPayment instanceof msPayment) {
-            return '';
-        }
-
-        $class = (string) $msPayment->get('class');
-        if ($class === '') {
-            return '';
-        }
-
-        /** @var PaymentService $paymentService */
-        $paymentService = $this->modx->services->get('ms3_payment_service');
-        $controller = $paymentService->loadPaymentHandler($msPayment);
-        if ($controller === null) {
-            return '';
-        }
-
-        return $controller->getPaymentLink($msOrder) ?? '';
     }
 }

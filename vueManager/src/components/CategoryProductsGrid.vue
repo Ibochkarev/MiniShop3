@@ -9,13 +9,13 @@ import InputText from 'primevue/inputtext'
 import Select from 'primevue/select'
 import Tag from 'primevue/tag'
 import Toast from 'primevue/toast'
-import { useConfirm } from 'primevue/useconfirm'
-import { useToast } from 'primevue/usetoast'
 import { computed, defineProps, onMounted, ref, watch } from 'vue'
 import draggable from 'vuedraggable'
 
+import { useGroupedToast, useUiGroup } from '../composables/uiGroup.js'
 import { useCategoryProductsInlineEdit } from '../composables/useCategoryProductsInlineEdit.js'
 import { useSelection } from '../composables/useSelection.js'
+import { useStaleRequestGuard } from '../composables/useStaleRequestGuard.js'
 import {
   GridColumnEditorType,
   isSelectLikeEditorType,
@@ -31,9 +31,12 @@ const props = defineProps({
   },
 })
 
-const toast = useToast()
-useConfirm()
 const { _ } = useLexicon()
+
+// From entry provideUiGroup('category-products'); fallback keeps confirm/toast alive
+// if the grid is mounted outside that entry (#538/#539).
+const UI_GROUP = useUiGroup() || 'category-products'
+const toast = useGroupedToast(UI_GROUP)
 
 // Bulk selection
 const {
@@ -45,6 +48,7 @@ const {
   confirmBulkDelete,
 } = useSelection({
   entityName: 'product',
+  uiGroup: UI_GROUP,
   deleteBulk: async ids => {
     await request.post(`/api/mgr/categories/${props.categoryId}/products/multiple`, {
       method: 'delete',
@@ -58,6 +62,7 @@ const {
 
 const columns = ref([])
 const filters = ref({})
+const { runGuarded } = useStaleRequestGuard()
 const loading = ref(false)
 const products = ref([])
 const totalRecords = ref(0)
@@ -128,43 +133,51 @@ function nestedMutationParams() {
  * Load products list
  */
 async function loadProducts() {
-  loading.value = true
-
   try {
-    const params = {
-      start: first.value,
-      limit: rows.value,
-      sort: sortField.value,
-      dir: sortOrder.value === 1 ? 'ASC' : 'DESC',
-      nested: nested.value ? 1 : 0,
-    }
+    await runGuarded(loading, async (signal, isCurrent) => {
+      const params = {
+        start: first.value,
+        limit: rows.value,
+        sort: sortField.value,
+        dir: sortOrder.value === 1 ? 'ASC' : 'DESC',
+        nested: nested.value ? 1 : 0,
+      }
 
-    // Apply filter values. Option-type columns are JOIN-ed at runtime — backend
-    // reads their filters as `filter_{fieldName}` (see CategoryProductsListService).
-    // Builtin product/data filters keep the original direct-param contract.
-    Object.keys(filterValues.value).forEach(key => {
-      const value = filterValues.value[key]
-      if (value === null || value === undefined || value === '') {
+      // Apply filter values. Option/relation columns are JOIN-ed at runtime — backend
+      // reads their filters as `filter_{fieldName}` (see CategoryProductsListService).
+      // Builtin product/data filters keep the original direct-param contract.
+      Object.keys(filterValues.value).forEach(key => {
+        const value = filterValues.value[key]
+        if (value === null || value === undefined || value === '') {
+          return
+        }
+        const col = columns.value.find(c => c.name === key)
+        if (col && (col.type === 'option' || col.type === 'relation')) {
+          params[`filter_${key}`] = value
+        } else {
+          params[key] = value
+        }
+      })
+
+      const response = await request.get(
+        `/api/mgr/categories/${props.categoryId}/products`,
+        params,
+        { signal }
+      )
+
+      if (!isCurrent()) {
         return
       }
-      const col = columns.value.find(c => c.name === key)
-      if (col && col.type === 'option') {
-        params[`filter_${key}`] = value
+
+      if (response && response.results) {
+        products.value = response.results
+        totalRecords.value = response.total || 0
       } else {
-        params[key] = value
+        console.error('[CategoryProductsGrid] Invalid response:', response)
+        products.value = []
+        totalRecords.value = 0
       }
     })
-
-    const response = await request.get(`/api/mgr/categories/${props.categoryId}/products`, params)
-
-    if (response && response.results) {
-      products.value = response.results
-      totalRecords.value = response.total || 0
-    } else {
-      console.error('[CategoryProductsGrid] Invalid response:', response)
-      products.value = []
-      totalRecords.value = 0
-    }
   } catch (error) {
     console.error('[CategoryProductsGrid] Error loading products:', error)
     toast.add({
@@ -173,8 +186,6 @@ async function loadProducts() {
       detail: error.message || _('error_loading_data'),
       life: 5000,
     })
-  } finally {
-    loading.value = false
   }
 }
 
@@ -763,8 +774,8 @@ onMounted(async () => {
 
 <template>
   <div class="category-products-grid">
-    <Toast />
-    <ConfirmDialog append-to="self" />
+    <Toast :group="UI_GROUP" />
+    <ConfirmDialog :group="UI_GROUP" append-to="self" />
 
     <Card>
       <template #title>
@@ -966,6 +977,7 @@ onMounted(async () => {
                           :data="product"
                           :actions="getActionsConfig(column)"
                           grid-id="category-products"
+                          :ui-group="UI_GROUP"
                           @view="viewProduct"
                           @edit="editProduct"
                           @delete="deleteProduct"

@@ -63,7 +63,7 @@ $unknown = CategoryProductActionPermissions::evaluate('not-a-method', $denyAll);
 $assertSame(false, $unknown['allowed'], 'unknown allowed');
 $assertSame(HttpStatus::BAD_REQUEST, $unknown['status'], 'unknown status');
 $assertSame('unknown_method', $unknown['reason'], 'unknown reason');
-$assertSame('Unknown method', $unknown['message'], 'unknown message');
+$assertSame('ms3_err_unknown_method', $unknown['message'], 'unknown message');
 
 // Missing permission → 403 before any product mutation
 $forbidden = CategoryProductActionPermissions::evaluate('delete', $denyAll);
@@ -72,7 +72,7 @@ $assertSame(HttpStatus::FORBIDDEN, $forbidden['status'], 'forbidden status');
 $assertSame('forbidden', $forbidden['reason'], 'forbidden reason');
 $assertSame('msproduct_delete', $forbidden['permission'], 'forbidden permission');
 $assertSame(
-    'Access denied. Required permission: msproduct_delete',
+    'ms3_err_access_denied_permission',
     $forbidden['message'],
     'forbidden message'
 );
@@ -101,5 +101,20 @@ $assertSame(HttpStatus::FORBIDDEN, $publishDenied['status'], 'publish denied sta
 $assertSame('msproduct_publish', $publishDenied['permission'], 'publish denied permission');
 
 $assertSame(true, CategoryProductActionPermissions::evaluate('show', $allowAll)['allowed'], 'show allowAll');
+
+foreach ([
+    ['publish', ['publish']],
+    ['unpublish', ['save', 'unpublish']],
+    ['delete', ['delete']],
+    ['undelete', ['save', 'undelete']],
+    ['show', ['save']],
+    ['unknown', null],
+] as [$method, $expected]) {
+    $assertSame(
+        $expected,
+        CategoryProductActionPermissions::documentPoliciesForMethod($method),
+        "documentPoliciesForMethod({$method})"
+    );
+}
 
 fwrite(STDOUT, "OK: CategoryProductActionPermissionsTest\n");

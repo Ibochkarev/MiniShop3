@@ -141,27 +141,31 @@ $router->group('/api/v1', function ($router) use ($modx, $tokenMiddleware) {
         $customerAuth = static fn (): \MiniShop3\Controllers\Api\Web\CustomerAuthController =>
             new \MiniShop3\Controllers\Api\Web\CustomerAuthController($modx);
 
-        $router->post('/login', function ($params) use ($customerAuth) {
+        $router->post('/login', function () use ($customerAuth) {
             return $customerAuth()->loginFromRequest();
         });
 
-        $router->post('/register', function ($params) use ($customerAuth) {
+        $router->post('/register', function () use ($customerAuth) {
             return $customerAuth()->registerFromRequest();
         });
 
-        $router->post('/logout', function ($params) use ($customerAuth) {
+        $router->get('/me', function () use ($customerAuth) {
+            return $customerAuth()->me();
+        }, [$tokenMiddleware]);
+
+        $router->post('/logout', function () use ($customerAuth) {
             return $customerAuth()->logout();
         }, [$tokenMiddleware]);
 
-        $router->post('/forgot-password', function ($params) use ($customerAuth) {
+        $router->post('/forgot-password', function () use ($customerAuth) {
             return $customerAuth()->forgotPasswordFromRequest();
         });
 
-        $router->post('/reset-password', function ($params) use ($customerAuth) {
+        $router->post('/reset-password', function () use ($customerAuth) {
             return $customerAuth()->resetPasswordFromRequest();
         });
 
-        $router->post('/add', function ($params) use ($modx) {
+        $router->post('/add', function () use ($modx) {
             $ms3 = $modx->services->get('ms3');
             $input = file_get_contents('php://input');
             $data = json_decode($input, true) ?: [];
@@ -170,9 +174,9 @@ $router->group('/api/v1', function ($router) use ($modx, $tokenMiddleware) {
             return $controller->updateField($data);
         }, [$tokenMiddleware]);
 
-        $router->get('/token/get', function ($params) use ($modx) {
+        $router->get('/token/get', function () use ($modx) {
             $ms3 = $modx->services->get('ms3');
-            $ms3->initialize();
+            $ms3->initialize($modx->context->key ?? 'web');
             $response = $ms3->customer->generateToken();
 
             if ($response['success']) {
@@ -181,6 +185,10 @@ $router->group('/api/v1', function ($router) use ($modx, $tokenMiddleware) {
                 return Response::error($response['message'] ?? 'Token generation failed', $response['code'] ?? 500);
             }
         });
+
+        $router->post('/token/refresh', function () use ($customerAuth) {
+            return $customerAuth()->refreshToken();
+        }, [$tokenMiddleware]);
 
         $router->group('/addresses', function ($router) use ($modx) {
             $router->get('', function ($params) use ($modx) {
@@ -192,7 +200,7 @@ $router->group('/api/v1', function ($router) use ($modx, $tokenMiddleware) {
                 return $controller->get($params);
             });
 
-            $router->post('', function ($params) use ($modx) {
+            $router->post('', function () use ($modx) {
                 $input = file_get_contents('php://input');
                 $data = json_decode($input, true) ?: [];
 
@@ -219,7 +227,7 @@ $router->group('/api/v1', function ($router) use ($modx, $tokenMiddleware) {
             });
         }, [$tokenMiddleware]);
 
-        $router->put('/profile', function ($params) use ($modx) {
+        $router->put('/profile', function () use ($modx) {
             $ms3 = $modx->services->get('ms3');
             $input = file_get_contents('php://input');
             $data = json_decode($input, true) ?: [];
@@ -233,7 +241,7 @@ $router->group('/api/v1', function ($router) use ($modx, $tokenMiddleware) {
             return $controller->changeCustomerAddress($params);
         }, [$tokenMiddleware]);
 
-        $router->post('/email/resend-verification', function ($params) use ($modx) {
+        $router->post('/email/resend-verification', function () use ($modx) {
             $ms3 = $modx->services->get('ms3');
             $controller = new \MiniShop3\Controllers\Api\Web\CustomerEmailController($modx, $ms3);
             return $controller->resendVerification();
@@ -244,22 +252,83 @@ $router->group('/api/v1', function ($router) use ($modx, $tokenMiddleware) {
             return $controller->verify($params);
         });
 
+        $router->get('/orders', function ($params) use ($modx) {
+            $controller = new \MiniShop3\Controllers\Api\Web\CustomerOrderController($modx);
+            return $controller->getList($params);
+        }, [$tokenMiddleware]);
+
+        $router->get('/orders/{id}', function ($params) use ($modx) {
+            $controller = new \MiniShop3\Controllers\Api\Web\CustomerOrderController($modx);
+            return $controller->get($params);
+        }, [$tokenMiddleware]);
+
         $router->post('/orders/{id}/cancel', function ($params) use ($modx) {
             $controller = new \MiniShop3\Controllers\Api\Web\CustomerOrderController($modx);
             return $controller->cancel($params);
         }, [$tokenMiddleware]);
     });
 
+    // Public catalog — no TokenMiddleware (headless storefront without customer session)
     $router->group('/product', function ($router) use ($modx) {
-
         $router->get('/get/{id}', function ($params) use ($modx) {
-            return Response::success(['message' => 'Product get endpoint - not implemented yet', 'id' => $params['id'] ?? null]);
+            $controller = new \MiniShop3\Controllers\Api\Web\ProductController($modx);
+            return $controller->get($params);
         });
 
         $router->get('/list', function ($params) use ($modx) {
-            return Response::success(['message' => 'Product list endpoint - not implemented yet']);
+            $controller = new \MiniShop3\Controllers\Api\Web\ProductController($modx);
+            return $controller->getList($params);
+        });
+
+        $router->get('/filters', function ($params) use ($modx) {
+            $controller = new \MiniShop3\Controllers\Api\Web\ProductController($modx);
+            return $controller->filters($params);
         });
     });
+
+    // Public category catalog — no TokenMiddleware (headless nav / PLP)
+    $router->group('/category', function ($router) use ($modx) {
+        $router->get('/get/{id}', function ($params) use ($modx) {
+            $controller = new \MiniShop3\Controllers\Api\Web\CategoryController($modx);
+            return $controller->get($params);
+        });
+
+        $router->get('/list', function ($params) use ($modx) {
+            $controller = new \MiniShop3\Controllers\Api\Web\CategoryController($modx);
+            return $controller->getList($params);
+        });
+
+        $router->get('/tree', function ($params) use ($modx) {
+            $controller = new \MiniShop3\Controllers\Api\Web\CategoryController($modx);
+            return $controller->getTree($params);
+        });
+    });
+
+    // Public checkout discovery — active deliveries / payments (no cart token)
+    $router->group('/delivery', function ($router) use ($modx) {
+        $router->get('/get/{id}', function ($params) use ($modx) {
+            $controller = new \MiniShop3\Controllers\Api\Web\DeliveryController($modx);
+            return $controller->get($params);
+        });
+
+        $router->get('/list', function ($params) use ($modx) {
+            $controller = new \MiniShop3\Controllers\Api\Web\DeliveryController($modx);
+            return $controller->getList($params);
+        });
+    });
+
+    $router->group('/payment', function ($router) use ($modx) {
+        $router->get('/get/{id}', function ($params) use ($modx) {
+            $controller = new \MiniShop3\Controllers\Api\Web\PaymentController($modx);
+            return $controller->get($params);
+        });
+
+        $router->get('/list', function ($params) use ($modx) {
+            $controller = new \MiniShop3\Controllers\Api\Web\PaymentController($modx);
+            return $controller->getList($params);
+        });
+    });
+
     $router->get('/health', function () use ($modx) {
         return Response::success([
             'status' => 'ok',

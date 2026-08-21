@@ -1,4 +1,31 @@
 /**
+ * Extract payload from MODX connector JSON envelope.
+ *
+ * Connector responses use `{ success, message, object?, data? }`. Callers expect
+ * the inner payload (e.g. `{ results, total }`), not the envelope with `success`.
+ *
+ * @param {unknown} responseData - Parsed JSON body from connector.php
+ * @returns {unknown} Unwrapped payload, or the original value when not an envelope
+ *
+ * Uses `!= null` so falsy scalars in `object`/`data` (0, false, "") are valid payloads.
+ */
+export function unwrapResponsePayload(responseData) {
+  if (responseData === null || typeof responseData !== 'object' || Array.isArray(responseData)) {
+    return responseData
+  }
+
+  if ('object' in responseData && responseData.object != null) {
+    return responseData.object
+  }
+
+  if ('data' in responseData && responseData.data != null) {
+    return responseData.data
+  }
+
+  return responseData
+}
+
+/**
  * API Request class for working with MiniShop3 API through MODX connector
  *
  * Features:
@@ -34,6 +61,13 @@ class Request {
    * Get MODAUTH token (dynamically)
    */
   getModAuthToken() {
+    // Prefer the token injected server-side into ms3.config: it is present in the initial
+    // inline <script>, before the Vue module runs, so early requests never race an unready
+    // MODx.siteId global on Ext-less pages (#544). Fall back to MODx.siteId for any page
+    // that does not ship ms3.config.token.
+    if (typeof ms3 !== 'undefined' && ms3?.config?.token) {
+      return ms3.config.token
+    }
     if (typeof MODx !== 'undefined' && MODx?.siteId) {
       return MODx.siteId
     }
@@ -94,6 +128,10 @@ class Request {
         credentials: 'same-origin',
       }
 
+      if (options.signal) {
+        fetchOptions.signal = options.signal
+      }
+
       let url
 
       if (method === 'GET' && data) {
@@ -126,21 +164,16 @@ class Request {
         )
       }
 
-      if (responseData.object && Object.keys(responseData.object).length > 0) {
-        return responseData.object
-      } else if (
-        responseData.data &&
-        Array.isArray(responseData.data) &&
-        responseData.data.length > 0
-      ) {
-        return responseData.data
-      } else if (responseData.data && !Array.isArray(responseData.data)) {
-        return responseData.data
+      return unwrapResponsePayload(responseData)
+    } catch (error) {
+      if (error?.name === 'AbortError') {
+        throw error
+      }
+      if (error instanceof RequestError) {
+        throw error
       }
 
-      return responseData
-    } catch (error) {
-      if (error instanceof RequestError) {
+      if (error?.name === 'AbortError') {
         throw error
       }
 
@@ -236,13 +269,7 @@ class Request {
         )
       }
 
-      if (responseData.object && Object.keys(responseData.object).length > 0) {
-        return responseData.object
-      } else if (responseData.data) {
-        return responseData.data
-      }
-
-      return responseData
+      return unwrapResponsePayload(responseData)
     } catch (error) {
       if (error instanceof RequestError) {
         throw error

@@ -15,6 +15,9 @@ const { _ } = useLexicon()
 const confirm = useConfirm()
 const toast = useToast()
 
+// Isolate from ProductLinksTab ConfirmDialog on product/update (#539)
+const UI_GROUP = 'product-gallery'
+
 const props = defineProps({
   productId: {
     type: Number,
@@ -39,6 +42,7 @@ const {
   regenerateThumbs,
   regenerateAll,
   updateFile,
+  setPreview,
   updateProductSource,
 } = useGalleryApi()
 
@@ -180,6 +184,27 @@ async function onEditSave(data) {
 }
 
 /**
+ * Handle set as main product preview (#130)
+ */
+async function onSetPreview(image) {
+  if (!image?.id) return
+  try {
+    const result = await setPreview(props.productId, image.id)
+    if (result.thumb) {
+      updateProductThumb(result.thumb)
+    }
+    await loadImages()
+  } catch (error) {
+    toast.add({
+      severity: 'error',
+      summary: _('ms3_gallery_errors'),
+      detail: error.message,
+      life: 5000,
+    })
+  }
+}
+
+/**
  * Show file in new window
  */
 function onShow(image) {
@@ -198,6 +223,7 @@ function onDeleteFiles(ids) {
       : _('ms3_gallery_file_delete_multiple_confirm')
 
   confirm.require({
+    group: UI_GROUP,
     message,
     header: ids.length === 1 ? _('ms3_gallery_file_delete') : _('ms3_gallery_file_delete_multiple'),
     icon: 'pi pi-exclamation-triangle',
@@ -243,6 +269,7 @@ async function onGenerateThumbs(ids) {
  */
 function onRegenerateAll() {
   confirm.require({
+    group: UI_GROUP,
     message: _('ms3_gallery_file_generate_thumbs_confirm'),
     header: _('ms3_gallery_file_generate_all'),
     icon: 'pi pi-refresh',
@@ -270,6 +297,7 @@ function onRegenerateAll() {
  */
 function onDeleteAll() {
   confirm.require({
+    group: UI_GROUP,
     message: _('ms3_gallery_file_delete_multiple_confirm'),
     header: _('ms3_gallery_file_delete_all'),
     icon: 'pi pi-exclamation-triangle',
@@ -298,6 +326,7 @@ function onDeleteAll() {
  */
 function onChangeSource(sourceId) {
   confirm.require({
+    group: UI_GROUP,
     message: _('ms3_product_change_source_confirm'),
     header: _('ms3_product_source'),
     icon: 'pi pi-exclamation-triangle',
@@ -330,7 +359,7 @@ onMounted(() => {
 
 <template>
   <div class="product-gallery">
-    <ConfirmDialog append-to="self" />
+    <ConfirmDialog :group="UI_GROUP" append-to="self" />
 
     <ProductGalleryToolbar
       :sources="sources"
@@ -361,6 +390,7 @@ onMounted(() => {
       @page-change="onPageChange"
       @edit="onEdit"
       @show="onShow"
+      @set-preview="onSetPreview"
       @generate-thumbs="onGenerateThumbs"
       @delete="onDeleteFiles"
     />

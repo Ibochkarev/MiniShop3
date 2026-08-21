@@ -12,6 +12,7 @@ class modX
     public const LOG_LEVEL_ERROR = 1;
     public const LOG_LEVEL_WARN = 2;
     public const LOG_LEVEL_INFO = 3;
+    public const LOG_LEVEL_DEBUG = 4;
 
     /** @var object|null */
     public $user;
@@ -24,6 +25,9 @@ class modX
 
     /** @var object|null */
     public $services;
+
+    /** @var object|null */
+    public $lexicon;
 
     public function __construct()
     {
@@ -57,6 +61,12 @@ class modX
                 return null;
             }
         };
+
+        $this->lexicon = new class {
+            public function load(string ...$topics): void
+            {
+            }
+        };
     }
 
     /**
@@ -66,6 +76,14 @@ class modX
     public function getOption(string $key, $options = null, $default = null)
     {
         return $default;
+    }
+
+    /**
+     * @param array<string, scalar|null> $params
+     */
+    public function lexicon(string $key, array $params = []): string
+    {
+        return $key;
     }
 
     /**

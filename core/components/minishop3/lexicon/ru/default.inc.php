@@ -174,8 +174,11 @@ $_lang['ms3_err_field_nf'] = 'Поле не найдено';
 $_lang['ms3_err_ae'] = 'Это поле должно быть уникально';
 $_lang['ms3_err_json'] = 'Это поле требует JSON строку';
 $_lang['ms3_repeater_validation_error'] = 'Поле повторителя «[[+field]]»: [[+error]]';
+$_lang['ms3_key_value_validation_error'] = 'Поле key-value «[[+field]]»: [[+error]]';
 
 $_lang['ms3_err_user_nf'] = 'Пользователь не найден.';
+$_lang['ms3_err_product_nf'] = 'Товар не найден.';
+$_lang['ms3_err_product_id_ns'] = 'Не указан ID товара.';
 $_lang['ms3_err_order_nf'] = 'Заказ с таким идентификатором не найден.';
 $_lang['ms3_err_order_load'] = 'Ошибка при загрузке заказа.';
 $_lang['ms3_err_order_num_lock'] = 'Не удалось получить блокировку для генерации номера заказа. Попробуйте ещё раз.';
@@ -183,13 +186,19 @@ $_lang['ms3_err_order_num_save'] = 'Не удалось сохранить но�
 $_lang['ms3_err_product_not_in_category_scope'] = 'Товар не входит в область этой категории.';
 $_lang['ms3_err_status_nf'] = 'Статус с таким идентификатором не найден.';
 $_lang['ms3_err_delivery_nf'] = 'Способ доставки с таким идентификатором не найден.';
+$_lang['ms3_err_delivery_id_required'] = 'Не указан ID доставки';
 $_lang['ms3_err_payment_nf'] = 'Способ оплаты с таким идентификатором не найден.';
+$_lang['ms3_err_payment_id_required'] = 'Не указан ID оплаты';
 $_lang['ms3_err_status_final'] = 'Установлен финальный статус. Его нельзя менять.';
 $_lang['ms3_err_status_fixed'] = 'Установлен фиксирующий статус. Вы не можете сменить его на более ранний.';
 $_lang['ms3_err_status_wrong'] = 'Неверный статус заказа.';
 $_lang['ms3_err_status_same'] = 'Этот статус уже установлен.';
 $_lang['ms3_err_register_globals'] = 'Ошибка: php параметр <b>register_globals</b> должен быть выключен.';
 $_lang['ms3_err_link_equal'] = 'Вы пытаетесь добавить товару ссылку на самого себя';
+$_lang['ms3_err_no_link'] = 'Тип связи не найден';
+$_lang['ms3_err_link_save'] = 'Не удалось сохранить связь товара (см. системный журнал).';
+$_lang['ms3_err_link_not_in_product_scope'] = 'Эта связь не относится к текущему товару';
+$_lang['ms3_err_link_batch_not_supported'] = 'Пакетное удаление связей не поддерживается';
 $_lang['ms3_err_value_duplicate'] = 'Вы не ввели значение или ввели повтор.';
 
 $_lang['ms3_err_gallery_save'] = 'Не могу сохранить файл не был сохранён (см. системный журнал).';
@@ -202,6 +211,38 @@ $_lang['ms3_err_wrong_image'] = 'Файл не является корректн
 $_lang['ms3_err_gallery_is_not_msproduct'] = '[msGallery] Ресурс с id = [[+id]] не является товаром.';
 $_lang['ms3_err_options_is_not_msproduct'] = '[msOptions] Ресурс с id = [[+id]] не является товаром.';
 $_lang['ms3_err_processor_combo_required'] = 'Этот процессор требует combo: true.';
+
+$_lang['ms3_err_category_id_required'] = 'Не указан ID категории';
+$_lang['ms3_err_category_nf'] = 'Категория не найдена';
+$_lang['ms3_err_category_products_list_service'] = 'Сервис списка товаров категории недоступен';
+$_lang['ms3_err_items_required'] = 'Не передан массив элементов';
+$_lang['ms3_err_method_required'] = 'Не указан метод';
+$_lang['ms3_err_unknown_method'] = 'Неизвестный метод';
+$_lang['ms3_err_access_denied_permission'] = 'Доступ запрещён. Требуется право: [[+permission]]';
+$_lang['ms3_err_product_ids_required'] = 'Не передан массив ID товаров';
+$_lang['ms3_err_product_ids_invalid'] = 'Не указаны корректные ID товаров';
+$_lang['ms3_err_category_products_no_updates'] = 'Ни один товар не был обновлён';
+$_lang['ms3_err_product_id_required'] = 'Не указан ID товара';
+$_lang['ms3_err_product_nf'] = 'Товар не найден';
+$_lang['ms3_err_product_update_failed'] = 'Не удалось обновить товар';
+$_lang['ms3_err_catalog_parents_invalid'] = 'Некорректный фильтр parents';
+$_lang['ms3_err_catalog_parents_limit'] = 'Слишком много ID категорий в parents';
+$_lang['ms3_err_catalog_price_invalid'] = 'Некорректный фильтр цены';
+$_lang['ms3_err_catalog_price_range'] = 'price_max должен быть не меньше price_min';
+$_lang['ms3_err_catalog_stock_invalid'] = 'Некорректный фильтр stock_min';
+$_lang['ms3_err_catalog_vendor_invalid'] = 'Некорректный фильтр vendor_id';
+$_lang['ms3_err_catalog_vendor_limit'] = 'Слишком много ID вендоров';
+$_lang['ms3_err_catalog_options_json'] = 'options должен быть JSON-объектом или картой';
+$_lang['ms3_err_catalog_options_limit'] = 'Слишком много ключей или значений опций';
+$_lang['ms3_err_catalog_option_key_invalid'] = 'Некорректный ключ опции';
+$_lang['ms3_err_catalog_option_value_invalid'] = 'Некорректное значение опции';
+$_lang['ms3_err_catalog_option_unknown'] = 'Неизвестный ключ опции';
+$_lang['ms3_err_catalog_facet_keys_invalid'] = 'Некорректный параметр keys для facets';
+$_lang['ms3_err_catalog_facet_keys_limit'] = 'Слишком много ключей опций для facets';
+$_lang['ms3_category_products_reordered'] = 'Порядок товаров успешно изменён';
+$_lang['ms3_category_product_published'] = 'Товар опубликован';
+$_lang['ms3_category_product_unpublished'] = 'Товар снят с публикации';
+$_lang['ms3_category_products_updated'] = 'Обновлено товаров: [[+count]]';
 
 $_lang['ms3_email_subject_new_user'] = 'Вы сделали заказ #[[+num]] на сайте [[++site_name]]';
 $_lang['ms3_email_subject_new_manager'] = 'У вас новый заказ #[[+num]]';
@@ -231,3 +272,5 @@ $_lang['ms3_vuetools_required'] = 'Для работы MiniShop3 требует�
 $_lang['ms3_mgr_order_recalc_invalid_mode'] = 'Недопустимый режим пересчёта стоимости заказа.';
 $_lang['ms3_mgr_order_recalc_manual_delivery_missing'] = 'В режиме manual обязательно укажите manual_delivery_cost (стоимость доставки).';
 $_lang['ms3_order_cost_recalc_success'] = 'Стоимость заказа пересчитана';
+$_lang['ms3_order_finalize_cost_recalc_required'] =
+    'Перед оформлением пересчитайте стоимость заказа: для выбранных доставки или оплаты нужен ручной расчёт или force_provider.';

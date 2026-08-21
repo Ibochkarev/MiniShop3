@@ -27,6 +27,14 @@ class OrderService
     }
 
     /**
+     * Base amount for payment commission (MS2-compatible: cart cost only, delivery excluded).
+     */
+    public static function paymentCommissionBase(float $cartCost): float
+    {
+        return round($cartCost, 6);
+    }
+
+    /**
      * Clamp computed order total so it never goes negative (defence-in-depth vs misconfigured discounts).
      *
      * @param msOrder|null $order Optional persisted order — used only for log context; null allowed for drafts without ID.
@@ -116,38 +124,6 @@ class OrderService
         ]);
 
         return $order->save();
-    }
-
-    /**
-     * Handle order save with events
-     *
-     * @deprecated Logic moved to msOrder::save(), this method kept for backward compatibility
-     *
-     * @param msOrder $order
-     * @param bool|null $cacheFlag
-     * @return bool
-     */
-    public function handleOrderSave(msOrder $order, ?bool $cacheFlag = null): bool
-    {
-        // Simply delegate call to msOrder::save()
-        // It already contains all event logic
-        return $order->save($cacheFlag);
-    }
-
-    /**
-     * Delete order with events
-     *
-     * @deprecated Logic moved to msOrder::remove(), this method kept for backward compatibility
-     *
-     * @param msOrder $order
-     * @param array $ancestors
-     * @return bool Deletion result
-     */
-    public function removeOrder(msOrder $order, array $ancestors = []): bool
-    {
-        // Simply delegate call to msOrder::remove()
-        // It already contains all event logic
-        return $order->remove($ancestors);
     }
 
     /**

@@ -123,7 +123,7 @@ parameters:
 		-
 			message: '#^Access to property \$services on an unknown class modX\.$#'
 			identifier: class.notFound
-			count: 4
+			count: 5
 			path: core/components/minishop3/elements/snippets/ms3_get_order.php
 
 		-
@@ -381,7 +381,7 @@ parameters:
 		-
 			message: '#^Access to property \$services on an unknown class modX\.$#'
 			identifier: class.notFound
-			count: 3
+			count: 5
 			path: core/components/minishop3/elements/snippets/ms3_products.php
 
 		-
@@ -979,34 +979,10 @@ parameters:
 			path: core/components/minishop3/src/Processors/Product/Update.php
 
 		-
-			message: '#^Property MiniShop3\\Processors\\Settings\\Delivery\\Payments\\Disable\:\:\$object \(MiniShop3\\Model\\msPayment\) does not accept xPDO\\Om\\xPDOObject\|null\.$#'
-			identifier: assign.propertyType
-			count: 1
-			path: core/components/minishop3/src/Processors/Settings/Delivery/Payments/Disable.php
-
-		-
-			message: '#^Property MiniShop3\\Processors\\Settings\\Delivery\\Payments\\Disable\:\:\$object \(MiniShop3\\Model\\msPayment\) in empty\(\) is not falsy\.$#'
-			identifier: empty.property
-			count: 1
-			path: core/components/minishop3/src/Processors/Settings/Delivery/Payments/Disable.php
-
-		-
 			message: '#^Constant MODX_CORE_PATH not found\.$#'
 			identifier: constant.notFound
 			count: 1
 			path: core/components/minishop3/src/Processors/Settings/GetClass.php
-
-		-
-			message: '#^Property MiniShop3\\Processors\\Settings\\Payment\\Deliveries\\Disable\:\:\$object \(MiniShop3\\Model\\msDelivery\) does not accept xPDO\\Om\\xPDOObject\|null\.$#'
-			identifier: assign.propertyType
-			count: 1
-			path: core/components/minishop3/src/Processors/Settings/Payment/Deliveries/Disable.php
-
-		-
-			message: '#^Property MiniShop3\\Processors\\Settings\\Payment\\Deliveries\\Disable\:\:\$object \(MiniShop3\\Model\\msDelivery\) in empty\(\) is not falsy\.$#'
-			identifier: empty.property
-			count: 1
-			path: core/components/minishop3/src/Processors/Settings/Payment/Deliveries/Disable.php
 
 		-
 			message: '#^Constant MODX_CORE_PATH not found\.$#'
@@ -1245,7 +1221,7 @@ parameters:
 		-
 			message: '#^Access to an undefined property MODX\\Revolution\\modX\:\:\$eventData\.$#'
 			identifier: property.notFound
-			count: 3
+			count: 6
 			path: core/components/minishop3/src/Services/Product/ProductDataService.php
 
 		-

@@ -12,18 +12,21 @@ import InputText from 'primevue/inputtext'
 import Select from 'primevue/select'
 import Toast from 'primevue/toast'
 import { useConfirm } from 'primevue/useconfirm'
-import { useToast } from 'primevue/usetoast'
 import { onMounted, ref, watch } from 'vue'
 
+import { useGroupedToast, useUiGroup } from '../composables/uiGroup.js'
 import request from '../request.js'
 
 const props = defineProps({
   categoryId: { type: Number, required: true },
 })
 
-const toast = useToast()
 const confirm = useConfirm()
 const { _ } = useLexicon()
+
+// From entry provideUiGroup('category-options'); fallback for non-entry mounts (#538/#539).
+const UI_GROUP = useUiGroup() || 'category-options'
+const toast = useGroupedToast(UI_GROUP)
 
 const links = ref([])
 const loading = ref(false)
@@ -182,6 +185,7 @@ async function performBulkAction(action) {
 function confirmBulkRemove() {
   if (selectedRows.value.length === 0) return
   confirm.require({
+    group: UI_GROUP,
     message:
       _('ms3_options_remove_confirm') ||
       'Удалить выбранные опции из категории? Значения опций у товаров будут удалены.',
@@ -255,6 +259,7 @@ async function performCopy() {
 
 function confirmSingleRemove(row) {
   confirm.require({
+    group: UI_GROUP,
     message:
       _('ms3_option_remove_confirm') || `Удалить опцию «${row.caption || row.key}» из категории?`,
     header: _('confirm') || 'Подтверждение',
@@ -295,8 +300,8 @@ onMounted(() => {
 
 <template>
   <div class="category-options-tab">
-    <Toast />
-    <ConfirmDialog />
+    <Toast :group="UI_GROUP" />
+    <ConfirmDialog :group="UI_GROUP" />
 
     <div class="toolbar">
       <Button

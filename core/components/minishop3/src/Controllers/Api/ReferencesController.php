@@ -4,6 +4,8 @@ namespace MiniShop3\Controllers\Api;
 
 use MiniShop3\Router\HttpStatus;
 use MiniShop3\Router\Response;
+use MiniShop3\Services\Product\ProductLinkService;
+use MiniShop3\Services\Settings\SettingsComboListService;
 
 /**
  * API controller for working with reference data (vendors, categories, etc)
@@ -20,37 +22,21 @@ class ReferencesController extends BaseApiController
     public function getVendors(array $params): Response
     {
         try {
-            $query = $this->modx->newQuery('MiniShop3\\Model\\msVendor');
+            /** @var SettingsComboListService $comboList */
+            $comboList = $this->modx->services->get('ms3_settings_combo_list');
+            $includeId = SettingsComboListService::resolvePinnedIncludeId(
+                (int) ($params['id'] ?? $_GET['id'] ?? 0),
+                $params['limit'] ?? $_GET['limit'] ?? null
+            );
+            $vendors = $comboList->listVendorsForCombo(
+                $includeId,
+                trim((string) ($params['query'] ?? $_GET['query'] ?? ''))
+            );
 
-            $query->select(['id', 'name']);
-
-            $query->sortby('name', 'ASC');
-
-            $searchQuery = $_GET['query'] ?? null;
-            if (!empty($searchQuery)) {
-                $query->where([
-                    'name:LIKE' => "%{$searchQuery}%",
-                    'OR:description:LIKE' => "%{$searchQuery}%",
-                ]);
-            }
-
-            $collection = $this->modx->getCollection('MiniShop3\\Model\\msVendor', $query);
-
-            $vendors = [];
-            foreach ($collection as $vendor) {
-                $vendors[] = [
-                    'id' => (int)$vendor->get('id'),
-                    'name' => $vendor->get('name'),
-                ];
-            }
-
-            $options = [];
-            foreach ($vendors as $row) {
-                $options[] = [
-                    'value' => $row['id'],
-                    'label' => (string)$row['name'],
-                ];
-            }
+            $options = array_map(
+                static fn(array $row): array => ['value' => $row['id'], 'label' => (string) $row['name']],
+                $vendors
+            );
 
             return Response::success([
                 'vendors' => $vendors,
@@ -374,6 +360,33 @@ class ReferencesController extends BaseApiController
         } catch (\Exception $e) {
             $this->modx->log(\MODX\Revolution\modX::LOG_LEVEL_ERROR, '[ReferencesController] ' . $e->getMessage());
             return Response::error('Failed to load field values: ' . $e->getMessage(), HttpStatus::INTERNAL_SERVER_ERROR);
+        }
+    }
+
+    /**
+     * GET /api/mgr/references/link-types
+     * msLink definitions for product-form / combo selects.
+     */
+    public function getLinkTypes(array $params): Response
+    {
+        try {
+            $service = $this->modx->services->get('ms3_product_link_service');
+            $linkService = $service instanceof ProductLinkService
+                ? $service
+                : new ProductLinkService($this->modx);
+            $results = $linkService->listLinkTypes();
+
+            return Response::success([
+                'results' => $results,
+                'total' => count($results),
+            ]);
+        } catch (\Exception $e) {
+            $this->modx->log(\MODX\Revolution\modX::LOG_LEVEL_ERROR, '[ReferencesController] ' . $e->getMessage());
+
+            return Response::error(
+                'Failed to load link types: ' . $e->getMessage(),
+                HttpStatus::INTERNAL_SERVER_ERROR
+            );
         }
     }
 
