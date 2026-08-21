@@ -67,6 +67,23 @@ const props = defineProps({
   },
 
   /**
+   * ConfirmDialog/Toast group. Matches `<ConfirmDialog :group>` / `<Toast :group>`.
+   * Prefer this over `confirmGroup`.
+   */
+  uiGroup: {
+    type: String,
+    default: null,
+  },
+
+  /**
+   * @deprecated Use `uiGroup`. Kept as alias for existing call sites.
+   */
+  confirmGroup: {
+    type: String,
+    default: null,
+  },
+
+  /**
    * Show icons only (without text)
    */
   iconOnly: {
@@ -98,6 +115,7 @@ const { _ } = useLexicon()
 
 const { executeAction } = useActions({
   gridId: props.gridId,
+  uiGroup: props.uiGroup || props.confirmGroup,
   onRefresh: () => emit('refresh'),
   onEdit: data => emit('edit', data),
   onDelete: data => emit('delete', data),

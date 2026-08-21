@@ -7,8 +7,8 @@ use MiniShop3\Model\msDelivery;
 use MiniShop3\Model\msOrder;
 use MiniShop3\Model\msOrderLog;
 use MiniShop3\Services\Order\OrderLogService;
+use MiniShop3\Services\Validation\ValidationService;
 use MODX\Revolution\modX;
-use Rakit\Validation\Validator;
 
 /**
  * Order Field Manager
@@ -223,13 +223,11 @@ class OrderFieldManager
         }
 
         // Run validation
-        $validator = new Validator();
-        $validation = $validator->validate(
+        $validation = $this->getValidationService()->validate(
             [$key => $value],
             [$key => $this->validationRules[$key]],
             $this->validationMessages
         );
-        $validation->validate();
 
         if ($validation->fails()) {
             $errors = $validation->errors();
@@ -249,6 +247,21 @@ class OrderFieldManager
                 'value' => $value,
             ];
             $response = $this->ms3->utils->invokeEvent('msOnValidateOrderValue', $eventParams);
+        }
+
+        if (in_array($key, ['payment_id', 'delivery_id'], true)) {
+            $deliveryId = (int) ($key === 'delivery_id' ? $response['data']['value'] : ($orderData['delivery_id'] ?? 0));
+            $paymentId = (int) ($key === 'payment_id' ? $response['data']['value'] : ($orderData['payment_id'] ?? 0));
+            /** @var \MiniShop3\Services\Delivery\DeliveryService $deliveryService */
+            $deliveryService = $this->modx->services->get('ms3_delivery_service');
+            $pairError = $deliveryService->getDeliveryPaymentPairError($deliveryId, $paymentId);
+            if ($pairError !== null) {
+                return $this->error('', [
+                    'error' => [
+                        $key => $pairError,
+                    ],
+                ]);
+            }
         }
 
         return $this->success('', ['value' => $response['data']['value']]);
@@ -318,6 +331,16 @@ class OrderFieldManager
     public function setValidationMessages(array $messages): void
     {
         $this->validationMessages = array_merge($this->validationMessages, $messages);
+    }
+
+    /**
+     * Resolve the canonical validation service from MODX DI.
+     */
+    protected function getValidationService(): ValidationService
+    {
+        $service = $this->modx->services->get('ms3_validation_service');
+
+        return $service instanceof ValidationService ? $service : new ValidationService();
     }
 
     /**

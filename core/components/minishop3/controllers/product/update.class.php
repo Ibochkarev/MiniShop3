@@ -49,22 +49,17 @@ class msProductUpdateManagerController extends msResourceUpdateController
         $this->addJavascript($mgrUrl . 'assets/modext/widgets/resource/modx.panel.resource.js');
         $this->addJavascript($mgrUrl . 'assets/modext/sections/resource/update.js');
         $this->addJavascript($assetsUrl . 'js/mgr/minishop3.js');
-        $this->addJavascript($assetsUrl . 'js/mgr/misc/sortable/sortable.min.js');
-        $this->addJavascript($assetsUrl . 'js/mgr/misc/ms3.combo.js');
-        $this->addJavascript($assetsUrl . 'js/mgr/misc/strftime-min-1.3.js');
-        $this->addJavascript($assetsUrl . 'js/mgr/misc/ms3.utils.js');
-        $this->addJavascript($assetsUrl . 'js/mgr/misc/default.grid.js');
-        $this->addJavascript($assetsUrl . 'js/mgr/misc/default.window.js');
-        $this->addLastJavascript($assetsUrl . 'js/mgr/product/category.tree.js');
-        $this->addLastJavascript($assetsUrl . 'js/mgr/product/links.grid.js');
-        $this->addLastJavascript($assetsUrl . 'js/mgr/product/links.window.js');
+        // Product links tab is Vue (ProductLinksTab); Ext links.grid/window no longer loaded (#114/#350).
         $this->addLastJavascript($assetsUrl . 'js/mgr/product/product.common.js');
         $this->addLastJavascript($assetsUrl . 'js/mgr/product/update.js');
 
-        // Product Tabs Vue module (contains Properties, Gallery, Categories, Links, Options tabs)
+        // Product Tabs Vue (Properties, Gallery, Categories, Links, Options).
+        // Only these vue-dist assets — do not add main.min.css (Vite never emits it; #503).
         $this->addCss($assetsUrl . 'css/mgr/vue-dist/primeicons.min.css');
         $this->addCss($assetsUrl . 'css/mgr/vue-dist/product-tabs.min.css');
         $this->addCss($assetsUrl . 'css/mgr/vue-dist/DynamicField.min.css');
+        // Shared Vite chunk: tree styles are not inlined into product-tabs.min.css (#555).
+        $this->addCss($assetsUrl . 'css/mgr/vue-dist/ResourceCategoryTree.min.css');
         $this->addVueModule($assetsUrl . 'js/mgr/vue-dist/product-tabs.min.js');
 
         $show_gallery = $this->getOption('ms3_product_tab_gallery', null, true);
@@ -155,10 +150,6 @@ class msProductUpdateManagerController extends msResourceUpdateController
             'up_page' => $this->resource->parent,
             'mode' => 'update',
         ];
-
-        $this->addCss($assetsUrl . 'css/mgr/vue-dist/main.min.css');
-        // Vue module with VueTools dependency check
-        $this->addVueModule($assetsUrl . 'js/mgr/vue-dist/main.min.js');
 
         $this->addHtml('
         <script>

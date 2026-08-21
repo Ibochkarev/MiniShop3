@@ -21,6 +21,13 @@ use MODX\Revolution\modX;
  */
 class OrderFinalizeService
 {
+    /** @deprecated Use OrderOrigin::MANAGER */
+    public const ORIGIN_MANAGER = OrderOrigin::MANAGER;
+    /** @deprecated Use OrderOrigin::STOREFRONT */
+    public const ORIGIN_STOREFRONT = OrderOrigin::STOREFRONT;
+    /** @deprecated Use OrderOrigin::INTEGRATION */
+    public const ORIGIN_INTEGRATION = OrderOrigin::INTEGRATION;
+
     protected modX $modx;
     protected MiniShop3 $ms3;
     protected OrderNumberGenerator $numberGenerator;
@@ -42,6 +49,7 @@ class OrderFinalizeService
      *   - skip_payment: bool - Skip payment gateway call
      *   - create_customer: bool - Create customer from order address data
      *   - force_create_customer: bool - Create customer even if duplicate found
+     *   - origin: string - Event context origin (`manager` default, `integration`, `storefront`)
      * @return array Response with success/error
      */
     public function finalize(int $orderId, array $options = []): array
@@ -50,6 +58,8 @@ class OrderFinalizeService
         $skipNotifications = $options['skip_notifications'] ?? false;
         $createCustomer = $options['create_customer'] ?? false;
         $forceCreateCustomer = $options['force_create_customer'] ?? false;
+        $origin = OrderOrigin::normalize($options['origin'] ?? OrderOrigin::MANAGER);
+        $fromManager = OrderOrigin::isManager($origin);
 
         // Get order
         /** @var msOrder $order */
@@ -72,16 +82,18 @@ class OrderFinalizeService
             }
         }
 
-        // Event: before manager-side order creation (finalize = draft → real order).
-        // Sibling of msOnSubmitOrder but fires in the manager finalize flow.
-        $response = $this->ms3->utils->invokeEvent('msOnBeforeMgrCreateOrder', [
-            'service' => $this,
-            'msOrder' => $order,
-            'from_manager' => true,
-        ]);
+        // Manager-only sibling of msOnSubmitOrder (draft → real order in mgr UI).
+        if ($fromManager) {
+            $response = $this->ms3->utils->invokeEvent('msOnBeforeMgrCreateOrder', [
+                'service' => $this,
+                'msOrder' => $order,
+                'origin' => $origin,
+                'from_manager' => true,
+            ]);
 
-        if (!$response['success']) {
-            return $this->error($response['message']);
+            if (!$response['success']) {
+                return $this->error($response['message']);
+            }
         }
 
         // Create customer if requested and no customer linked yet
@@ -103,7 +115,7 @@ class OrderFinalizeService
         }
 
         // Calculate costs
-        $costResult = $this->calculateCosts($order);
+        $costResult = $this->calculateCosts($order, $options);
         if (!$costResult['success']) {
             return $costResult;
         }
@@ -113,6 +125,7 @@ class OrderFinalizeService
         $order->set('cost', $costResult['data']['total_cost']);
         $order->set('cart_cost', $costResult['data']['cart_cost']);
         $order->set('delivery_cost', $costResult['data']['delivery_cost']);
+        $order->set('weight', $costResult['data']['weight']);
 
         try {
             if (empty($order->get('num'))) {
@@ -140,24 +153,19 @@ class OrderFinalizeService
             return $this->error('ms3_err_order_num_save');
         }
 
-        // Event: before create order (same as frontend)
-        $response = $this->ms3->utils->invokeEvent('msOnBeforeCreateOrder', [
+        $createEventParams = [
             'service' => $this,
             'msOrder' => $order,
-            'from_manager' => true,
-        ]);
+            'origin' => $origin,
+            'from_manager' => $fromManager,
+        ];
 
+        $response = $this->ms3->utils->invokeEvent('msOnBeforeCreateOrder', $createEventParams);
         if (!$response['success']) {
             return $this->error($response['message']);
         }
 
-        // Event: on create order (same as frontend)
-        $response = $this->ms3->utils->invokeEvent('msOnCreateOrder', [
-            'service' => $this,
-            'msOrder' => $order,
-            'from_manager' => true,
-        ]);
-
+        $response = $this->ms3->utils->invokeEvent('msOnCreateOrder', $createEventParams);
         if (!$response['success']) {
             return $this->error($response['message']);
         }
@@ -180,17 +188,21 @@ class OrderFinalizeService
         // Reload order after status change
         $order = $this->modx->getObject(msOrder::class, $orderId);
 
-        // Event: manager-side order creation finished (draft finalized).
-        $this->ms3->utils->invokeEvent('msOnMgrCreateOrder', [
-            'service' => $this,
-            'msOrder' => $order,
-            'from_manager' => true,
-        ]);
+        if ($fromManager) {
+            $this->ms3->utils->invokeEvent('msOnMgrCreateOrder', [
+                'service' => $this,
+                'msOrder' => $order,
+                'origin' => $origin,
+                'from_manager' => true,
+            ]);
+        }
 
         return $this->success('ms3_order_finalized', [
             'order_id' => $order->get('id'),
             'order_num' => $order->get('num'),
             'status_id' => $order->get('status_id'),
+            'uuid' => $order->get('uuid'),
+            'num' => $order->get('num'),
         ]);
     }
 
@@ -229,6 +241,7 @@ class OrderFinalizeService
 
         // Check payment is selected
         $paymentId = (int) $order->get('payment_id');
+        $payment = null;
         if ($paymentId > 0) {
             $payment = $this->modx->getObject(msPayment::class, [
                 'id' => $paymentId,
@@ -241,16 +254,23 @@ class OrderFinalizeService
             $errors[] = 'payment_id';
         }
 
+        // Return early if basic errors found
+        if (!empty($errors)) {
+            return $this->error('ms3_order_err_validation', $errors);
+        }
+
+        /** @var \MiniShop3\Services\Delivery\DeliveryService $deliveryService */
+        $deliveryService = $this->modx->services->get('ms3_delivery_service');
+        $pairError = $deliveryService->getDeliveryPaymentPairError($deliveryId, $paymentId);
+        if ($pairError !== null) {
+            return $this->error($pairError, ['payment_id', 'delivery_id']);
+        }
+
         // Check customer is linked (optional - manager can create orders without customer)
         // $customerId = (int) $order->get('customer_id');
         // if ($customerId === 0) {
         //     $errors[] = 'customer_id';
         // }
-
-        // Return early if basic errors found
-        if (!empty($errors)) {
-            return $this->error('ms3_order_err_validation', $errors);
-        }
 
         // Check required fields for delivery
         $requiredFieldsErrors = $this->validateDeliveryRequiredFields($order);
@@ -398,48 +418,49 @@ class OrderFinalizeService
      * Calculate order costs
      *
      * @param msOrder $order
+     * @param array<string, mixed> $options Forward cost_mode / manual_delivery_cost to recalculator
      * @return array
      */
-    protected function calculateCosts(msOrder $order): array
+    protected function calculateCosts(msOrder $order, array $options = []): array
     {
-        $products = $this->modx->getIterator(msOrderProduct::class, [
-            'order_id' => $order->get('id'),
-        ]);
-        $totals = OrderService::aggregateProductsTotals($products);
-        $cartCost = $totals['cart_cost'];
-        $weight = $totals['weight'];
+        $recalculator = new ManagerOrderCostRecalculator($this->modx, $this->ms3);
+        $costOptions = [];
+        if (isset($options['cost_mode'])) {
+            $costOptions['mode'] = $options['cost_mode'];
+        }
+        if (array_key_exists('manual_delivery_cost', $options)) {
+            $costOptions['manual_delivery_cost'] = $options['manual_delivery_cost'];
+        }
+        $result = $recalculator->calculateBreakdown($order, $costOptions);
 
-        // Calculate delivery cost
-        $deliveryCost = 0;
-        $deliveryId = (int) $order->get('delivery_id');
-
-        if ($deliveryId > 0) {
-            /** @var msDelivery $delivery */
-            $delivery = $this->modx->getObject(msDelivery::class, $deliveryId);
-            if ($delivery) {
-                // Use delivery's getCost method if available, otherwise use fixed price
-                $deliveryCost = (float) $delivery->get('price');
-
-                // Check for weight-based pricing
-                $weightPrice = (float) $delivery->get('weight_price');
-                if ($weightPrice > 0 && $weight > 0) {
-                    $deliveryCost += $weight * $weightPrice;
-                }
-            }
+        if (!$result['success']) {
+            return $result;
         }
 
-        // Update order weight
-        $order->set('weight', $weight);
+        $breakdown = $result['data']['breakdown'];
+        $warnings = $result['data']['warnings'] ?? [];
 
-        /** @var OrderService $orderService */
-        $orderService = $this->modx->services->get('ms3_order_service');
-        $totalCost = $orderService->clampComputedTotal($order, (float) $cartCost, (float) $deliveryCost, 0.0);
+        if ($warnings !== []) {
+            $this->modx->log(
+                modX::LOG_LEVEL_WARN,
+                '[OrderFinalizeService] Cost calculation warnings for order #'
+                . $order->get('id')
+                . ': '
+                . implode(', ', $warnings)
+            );
+
+            return $this->error('ms3_order_finalize_cost_recalc_required', [
+                'warnings' => $warnings,
+            ]);
+        }
+
+        $order->set('weight', $breakdown['weight']);
 
         return $this->success('', [
-            'cart_cost' => $cartCost,
-            'delivery_cost' => $deliveryCost,
-            'total_cost' => $totalCost,
-            'weight' => $weight,
+            'cart_cost' => $breakdown['cart_cost'],
+            'delivery_cost' => $breakdown['delivery_cost'],
+            'total_cost' => $breakdown['cost'],
+            'weight' => $breakdown['weight'],
         ]);
     }
 

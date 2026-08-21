@@ -13,7 +13,10 @@ use MODX\Revolution\modX;
  */
 class CategoryProductScopeModxStub extends modX
 {
-    /** @var list<array{id: int, parent: int, published?: int, deleted?: int}> */
+    /** @var object|null */
+    public $lexicon;
+
+    /** @var list<array{id: int, parent: int, published?: int, deleted?: int, policies?: array<string, bool>}> */
     public array $products = [];
 
     /** @var list<array{id: int, parent: int}> */
@@ -25,6 +28,27 @@ class CategoryProductScopeModxStub extends modX
     public function __construct()
     {
         parent::__construct();
+        $this->user = new class {
+            public function isAuthenticated(string $context): bool
+            {
+                return $context === 'mgr';
+            }
+
+            public function getUserToken(string $contextKey): string
+            {
+                return 'test-modauth-token';
+            }
+
+            public function get(string $key): mixed
+            {
+                return $key === 'id' ? 0 : null;
+            }
+        };
+        $this->lexicon = new class {
+            public function load(string ...$topics): void
+            {
+            }
+        };
         $this->services = new class {
             public function get(string $key): null
             {
@@ -38,9 +62,42 @@ class CategoryProductScopeModxStub extends modX
         };
     }
 
+    /**
+     * @param array<string, mixed> $params
+     */
+    public function lexicon(string $key, array $params = [], string $language = ''): string
+    {
+        return $key;
+    }
+
     public function getObject($className = '', $criteria = null, $cacheFlag = true)
     {
         $this->getObjectCalls[] = ['class' => $className, 'criteria' => $criteria];
+
+        if ($className === msCategory::class) {
+            $categoryId = is_array($criteria)
+                ? (int) ($criteria['id'] ?? 0)
+                : (int) $criteria;
+
+            if ($categoryId <= 0) {
+                return null;
+            }
+
+            foreach ($this->categories as $row) {
+                if ((int) $row['id'] === $categoryId) {
+                    return new StubMsCategory($row);
+                }
+            }
+
+            // Category ids used as product parents / API path params (direct children grid).
+            foreach ($this->products as $product) {
+                if ((int) ($product['parent'] ?? 0) === $categoryId) {
+                    return new StubMsCategory(['id' => $categoryId]);
+                }
+            }
+
+            return null;
+        }
 
         if ($className !== msProduct::class) {
             return null;
@@ -52,7 +109,7 @@ class CategoryProductScopeModxStub extends modX
 
             foreach ($this->products as $row) {
                 if ((int) $row['id'] === $productId && (int) $row['parent'] === $parentId) {
-                    return new StubMsProduct($row);
+                    return new StubMsProduct($row, $row['policies'] ?? null);
                 }
             }
 
@@ -62,7 +119,7 @@ class CategoryProductScopeModxStub extends modX
         $productId = (int) $criteria;
         foreach ($this->products as $row) {
             if ((int) $row['id'] === $productId) {
-                return new StubMsProduct($row);
+                return new StubMsProduct($row, $row['policies'] ?? null);
             }
         }
 

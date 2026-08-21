@@ -1,20 +1,20 @@
 <?php
 
 use MiniShop3\MiniShop3;
-use MiniShop3\Model\msCategory;
-use MiniShop3\Model\msCategoryMember;
 use MiniShop3\Model\msProduct;
 use MiniShop3\Model\msProductData;
 use MiniShop3\Model\msProductFile;
 use MiniShop3\Model\msProductLink;
 use MiniShop3\Model\msProductOption;
 use MiniShop3\Model\msVendor;
+use MiniShop3\Services\Category\CategoryProductScopeService;
+use MiniShop3\Utils\EventGate;
 use MiniShop3\Utils\ProductThumbnailJoin;
 use MODX\Revolution\modPlugin;
 use MODX\Revolution\modPluginEvent;
 use ModxPro\PdoTools\Fetch;
 
-/** @var modX $modx */
+/** @var \MODX\Revolution\modX $modx */
 /** @var array $scriptProperties */
 /** @var MiniShop3 $ms3 */
 
@@ -143,108 +143,16 @@ foreach (['where', 'leftJoin', 'innerJoin', 'select', 'groupby'] as $v) {
 }
 $pdoFetch->addTime('Conditions prepared');
 
-// Workaround: pdoTools проверяет 'msCategory' в classMap, но MiniShop3 использует namespace
-// Добавляем товары из дополнительных категорий (msCategoryMember) через кастомный WHERE
-// TODO убрать этот блок в случае доработок pdoTools
+// pdoTools parent filter ignores msCategoryMember; scope via CategoryProductScopeService (#481).
 $_ms3Parents = (string)($scriptProperties['parents'] ?? '');
-if ($_ms3Parents !== '' && $_ms3Parents !== '0') {
+if ($_ms3Parents !== '' && $_ms3Parents !== '0' && $modx->services->has('ms3_category_product_scope')) {
+    /** @var CategoryProductScopeService $scopeService */
+    $scopeService = $modx->services->get('ms3_category_product_scope');
     $_ms3Depth = (int)($scriptProperties['depth'] ?? 10);
-    $_ms3ParentsIn = [];
-    $_ms3ParentsOut = [];
+    $_ms3CategoryIds = $scopeService->resolveCategoryIdsFromParents($_ms3Parents, $_ms3Depth);
 
-    // Разбираем parents: положительные - включить, отрицательные - исключить
-    foreach (array_map('trim', explode(',', $_ms3Parents)) as $_ms3Parent) {
-        $_ms3Parent = (int)$_ms3Parent;
-        if ($_ms3Parent > 0) {
-            $_ms3ParentsIn[] = $_ms3Parent;
-        } elseif ($_ms3Parent < 0) {
-            $_ms3ParentsOut[] = abs($_ms3Parent);
-        }
-    }
-
-    // Получаем дочерние категории для включения (только msCategory, не все ресурсы)
-    if (!empty($_ms3ParentsIn) && $_ms3Depth > 0) {
-        $_ms3CatIds = $_ms3ParentsIn;
-        for ($_ms3i = 0; $_ms3i < $_ms3Depth; $_ms3i++) {
-            $_ms3CatQuery = $modx->newQuery(msCategory::class);
-            $_ms3CatQuery->where([
-                'class_key' => msCategory::class,
-                'parent:IN' => $_ms3CatIds,
-                'published' => 1,
-                'deleted' => 0,
-            ]);
-            $_ms3CatQuery->select('id');
-
-            if ($_ms3CatQuery->prepare() && $_ms3CatQuery->stmt->execute()) {
-                $_ms3ChildIds = $_ms3CatQuery->stmt->fetchAll(\PDO::FETCH_COLUMN);
-                if (empty($_ms3ChildIds)) {
-                    break;
-                }
-                $_ms3ParentsIn = array_merge($_ms3ParentsIn, $_ms3ChildIds);
-                $_ms3CatIds = $_ms3ChildIds;
-            } else {
-                break;
-            }
-        }
-    }
-
-    // Получаем дочерние категории для исключения
-    if (!empty($_ms3ParentsOut) && $_ms3Depth > 0) {
-        $_ms3CatIds = $_ms3ParentsOut;
-        for ($_ms3i = 0; $_ms3i < $_ms3Depth; $_ms3i++) {
-            $_ms3CatQuery = $modx->newQuery(msCategory::class);
-            $_ms3CatQuery->where([
-                'class_key' => msCategory::class,
-                'parent:IN' => $_ms3CatIds,
-                'published' => 1,
-                'deleted' => 0,
-            ]);
-            $_ms3CatQuery->select('id');
-
-            if ($_ms3CatQuery->prepare() && $_ms3CatQuery->stmt->execute()) {
-                $_ms3ChildIds = $_ms3CatQuery->stmt->fetchAll(\PDO::FETCH_COLUMN);
-                if (empty($_ms3ChildIds)) {
-                    break;
-                }
-                $_ms3ParentsOut = array_merge($_ms3ParentsOut, $_ms3ChildIds);
-                $_ms3CatIds = $_ms3ChildIds;
-            } else {
-                break;
-            }
-        }
-    }
-
-    // Вычитаем исключённые категории из включённых
-    $_ms3ParentsIn = array_unique($_ms3ParentsIn);
-    $_ms3ParentsOut = array_unique($_ms3ParentsOut);
-    if (!empty($_ms3ParentsOut)) {
-        $_ms3ParentsIn = array_diff($_ms3ParentsIn, $_ms3ParentsOut);
-    }
-
-    // ВСЕГДА отключаем pdoTools parent processing - мы обрабатываем сами
-    if (!empty($_ms3ParentsIn)) {
-        $_ms3ParentsList = implode(',', array_map('intval', $_ms3ParentsIn));
-
-        // Получаем товары из дополнительных категорий
-        $_ms3MemberQuery = $modx->newQuery(msCategoryMember::class);
-        $_ms3MemberQuery->where(['category_id:IN' => $_ms3ParentsIn]);
-        $_ms3MemberQuery->select('product_id');
-
-        $_ms3MemberIds = [];
-        if ($_ms3MemberQuery->prepare() && $_ms3MemberQuery->stmt->execute()) {
-            $_ms3MemberIds = $_ms3MemberQuery->stmt->fetchAll(\PDO::FETCH_COLUMN);
-        }
-
-        // Строим WHERE: parent IN категориях, опционально OR id IN доп. категориях
-        if (!empty($_ms3MemberIds)) {
-            $_ms3MembersList = implode(',', array_map('intval', $_ms3MemberIds));
-            $where[] = "(`msProduct`.`parent` IN ({$_ms3ParentsList}) OR `msProduct`.`id` IN ({$_ms3MembersList}))";
-        } else {
-            // Нет товаров в доп. категориях - просто фильтруем по parent
-            $where[] = "`msProduct`.`parent` IN ({$_ms3ParentsList})";
-        }
-
-        // ВСЕГДА отключаем стандартную фильтрацию pdoTools по parents
+    if ($_ms3CategoryIds !== []) {
+        $where[] = $scopeService->buildMsProductsWhereForCategories($_ms3CategoryIds);
         $scriptProperties['parents'] = 0;
     }
 }
@@ -364,43 +272,17 @@ if (!empty($scriptProperties['usePackages'])) {
     $usePackages = array_map('trim', explode(',', $scriptProperties['usePackages']));
 }
 
-$clearEventReturnedValues = static function () use ($modx): void {
-    if (isset($modx->event->returnedValues)) {
-        $modx->event->returnedValues = null;
-    }
-};
-$getEventReturnedValues = static function () use ($modx): array {
-    return isset($modx->event->returnedValues) && is_array($modx->event->returnedValues)
-        ? $modx->event->returnedValues
-        : [];
-};
-$applyReturnedArray = static function (array $current, array $returnedValues, string $key): array {
-    if (!isset($returnedValues[$key]) || !is_array($returnedValues[$key])) {
-        return $current;
-    }
-
-    // Lists are complete replacements; associative arrays may patch existing keys.
-    return array_is_list($returnedValues[$key])
-        ? $returnedValues[$key]
-        : array_replace($current, $returnedValues[$key]);
-};
-
 // Event: msOnProductsLoad - bulk loading of additional data from external packages
 if (!empty($rows) && is_array($rows)) {
     $productIds = array_column($rows, 'id');
-    $clearEventReturnedValues();
-    // Two propagation paths supported:
-    //   1) by-ref mutation of $rows in the plugin scope — preserved for plugins
-    //      (ms3Variants and others) that mutate $scriptProperties['rows'] directly.
-    //   2) $modx->event->returnedValues['rows'] — the explicit channel introduced
-    //      in #219/#245 for plugins that prefer the returned-values contract.
-    $modx->invokeEvent('msOnProductsLoad', [
+    // by-ref + returnedValues['rows'] — see EventGate contract (#219/#245).
+    $event = EventGate::invokeRaw($modx, 'msOnProductsLoad', [
         'rows' => &$rows,
         'productIds' => $productIds,
         'usePackages' => $usePackages,
         'scriptProperties' => $scriptProperties,
     ]);
-    $rows = $applyReturnedArray($rows, $getEventReturnedValues(), 'rows');
+    $rows = EventGate::applyReturnedArray($rows, $event['returnedValues'], 'rows');
     $pdoFetch->addTime('Invoked msOnProductsLoad event');
 }
 
@@ -455,14 +337,12 @@ if (!empty($rows) && is_array($rows)) {
         $opt_time += microtime(true) - $opt_time_start;
 
         // Event: msOnProductPrepare - enrich single product data from external packages
-        $clearEventReturnedValues();
-        // by-ref + returnedValues — see msOnProductsLoad comment above.
-        $modx->invokeEvent('msOnProductPrepare', [
+        $event = EventGate::invokeRaw($modx, 'msOnProductPrepare', [
             'row' => &$rows[$k],
             'productId' => $row['id'],
             'idx' => $row['idx'],
         ]);
-        $rows[$k] = $applyReturnedArray($rows[$k], $getEventReturnedValues(), 'row');
+        $rows[$k] = EventGate::applyReturnedArray($rows[$k], $event['returnedValues'], 'row');
         $row = $rows[$k];
 
         $rawPrice = (float)($row['price'] ?? 0);

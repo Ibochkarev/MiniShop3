@@ -84,6 +84,21 @@ php _build/build.php
 - [REST API](https://docs.modx.pro/components/minishop3/development/api) — интеграция с внешними системами
 - [События](https://docs.modx.pro/components/minishop3/development/events) — расширение функциональности
 
+### Каталог товаров (Web API)
+
+Публичные endpoints без токена. В выборку попадают только товары с `published=1`, `deleted=0`, `hidemenu=0` в указанном (или текущем) `context`.
+
+```
+GET /assets/components/minishop3/api.php?route=/api/v1/product/get/{id}
+GET /assets/components/minishop3/api.php?route=/api/v1/product/list
+```
+
+Параметры: `parent` / `category` (только primary parent, без `msCategoryMember`), `limit` (max 100), `offset` / `page`, `sort` + `dir`, `query`, `context`, `include_options`, `include_content`.
+
+Ответ `list`: `{ items, total, limit, offset }`. Цена и вес — через `msOnGetProductPrice` / `msOnGetProductWeight`; поля ответа allowlist’ятся после `msOnGetProductFields`.
+
+Полный справочник REST — на [docs.modx.pro](https://docs.modx.pro/components/minishop3/development/api) (раздел каталога стоит синхронизировать с этим релизом).
+
 ### Подтверждение email (Web API)
 
 Ссылка в письме ведёт на `api.php` с путём верификации и параметром `html=1` — в ответ сервер отдаёт **HTTP-редирект** (302) на сайт с признаком `ms3_email_verified=1` либо `ms3_email_verified=0`. URL после успешной проверки задаётся системной настройкой `ms3_email_verification_success_url` (если пусто — `site_url`).
@@ -106,6 +121,27 @@ MiniShop3/
 │   └── lexicon/            # Переводы (ru, en)
 └── vueManager/             # Vue 3 исходники админки
 ```
+
+### Слои под `src/Controllers/` (HTTP vs domain facade)
+
+Оба живут в namespace `MiniShop3\Controllers\…`, но это **разные роли**. Не кладите HTTP-парсинг в domain facade и не тащите бизнес-логику корзины/заказа в API-класс.
+
+| Слой | Путь | Роль |
+|------|------|------|
+| HTTP API | `Controllers/Api/Manager/*`, `Controllers/Api/Web/*` (+ соседние `Controllers/Api/*` на manager routes) | Маршруты FastRoute: request → Response / HttpStatus |
+| Domain facade (MS2-style) | `Controllers/Cart`, `Order`, `Customer` | Публичный фасад для `$ms3->cart` / `$ms3->order` / `$ms3->customer` и DI; делегирует в `Services/` |
+| Provider plugins | `Controllers/Delivery`, `Payment` | Abstract base для методов доставки/оплаты (не DI-фасады `ms3_*`) |
+| Services | `Services/*` | Каноническая бизнес-логика |
+
+Ключевые DI-ключи фасадов (см. также `ServiceRegistry`):
+
+| DI key | Класс | Роль |
+|--------|-------|------|
+| `ms3_cart` | `MiniShop3\Controllers\Cart\Cart` | Domain facade корзины (не HTTP) |
+| `ms3_order` | `MiniShop3\Controllers\Order\Order` | Domain facade заказа (не HTTP) |
+| `ms3_customer` | `MiniShop3\Controllers\Customer\Customer` | Domain facade покупателя (не HTTP) |
+
+Переименование namespace (`Domain\` / `Facades\`) — отдельный major с bc-aliases; этот репозиторий пока фиксирует границу документацией и PHPDoc.
 
 ## 🤝 Участие в разработке
 

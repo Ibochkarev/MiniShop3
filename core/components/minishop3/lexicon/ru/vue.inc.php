@@ -161,6 +161,7 @@ $_lang['ms3_vue_xtype_textarea'] = 'Текстовая область';
 $_lang['ms3_vue_xtype_xcheckbox'] = 'Флажок';
 $_lang['ms3_vue_xtype_combo_select'] = 'Выпадающий список';
 $_lang['ms3_vue_xtype_repeater'] = 'Повторитель (таблица строк)';
+$_lang['ms3_vue_xtype_key_value'] = 'Ключ-Значение (карта)';
 $_lang['ms3_vue_xtype_combo_vendor'] = 'Производитель (combo)';
 $_lang['ms3_vue_xtype_combo_autocomplete'] = 'Автодополнение (combo)';
 $_lang['ms3_vue_xtype_combo_options'] = 'Опции товара (chips)';
@@ -186,6 +187,26 @@ $_lang['ms3_vue_repeater_sortable'] = 'Сортировка перетаскив
 $_lang['ms3_vue_repeater_add_row'] = 'Добавить строку';
 $_lang['ms3_vue_repeater_no_columns'] = 'Настройте колонки повторителя в параметрах extra field.';
 $_lang['ms3_vue_repeater_drag_hint'] = 'Перетащите для изменения порядка';
+
+// Key-Value field
+$_lang['ms3_vue_key_value_schema_label'] = 'Схема Ключ-Значение';
+$_lang['ms3_vue_key_value_schema_help'] = 'Определите ключи для фиксированного режима или используйте свободный режим для любых пар.';
+$_lang['ms3_vue_key_value_mode'] = 'Режим';
+$_lang['ms3_vue_key_value_mode_fixed'] = 'Фиксированные ключи';
+$_lang['ms3_vue_key_value_mode_free'] = 'Свободные ключи';
+$_lang['ms3_vue_key_value_keys'] = 'Ключи';
+$_lang['ms3_vue_key_value_add_key'] = 'Добавить ключ';
+$_lang['ms3_vue_key_value_key'] = 'Ключ';
+$_lang['ms3_vue_key_value_label'] = 'Подпись';
+$_lang['ms3_vue_key_value_value'] = 'Значение';
+$_lang['ms3_vue_key_value_add_pair'] = 'Добавить пару';
+$_lang['ms3_vue_key_value_value_type'] = 'Тип значения';
+$_lang['ms3_vue_key_value_value_type_string'] = 'Строка';
+$_lang['ms3_vue_key_value_value_type_number'] = 'Число';
+$_lang['ms3_vue_key_value_required'] = 'Обязательное';
+$_lang['ms3_vue_key_value_no_keys'] = 'Ключи не заданы. Добавьте ключи в параметрах extra field для фиксированного режима.';
+$_lang['ms3_vue_key_value_duplicate_key'] = 'Дублирующий ключ «[[+key]]». Сохраняется только первое значение.';
+
 $_lang['ms3_vue_order_extra_fields'] = 'Дополнительные поля заказа';
 $_lang['ms3_vue_order_address_extra_fields'] = 'Дополнительные поля адреса';
 
@@ -769,11 +790,14 @@ $_lang['ms3_order_finalize_confirm'] = 'Подтверждение оформл�
 $_lang['ms3_order_finalize_confirm_desc'] = 'После оформления заказ получит номер, статус изменится на «Новый», и будут отправлены уведомления.';
 $_lang['ms3_order_finalized'] = 'Заказ успешно оформлен';
 $_lang['ms3_order_finalize_error'] = 'Ошибка при оформлении заказа';
+$_lang['ms3_order_finalize_cost_recalc_required'] =
+    'Перед оформлением пересчитайте стоимость заказа: для выбранных доставки или оплаты нужен ручной расчёт или force_provider.';
 $_lang['ms3_order_is_draft'] = 'Черновик';
 $_lang['ms3_order_err_validation'] = 'Ошибка валидации данных заказа';
 $_lang['ms3_order_err_products'] = 'В заказе нет товаров';
 $_lang['ms3_order_err_delivery_id'] = 'Не выбран способ доставки';
 $_lang['ms3_order_err_payment_id'] = 'Не выбран способ оплаты';
+$_lang['ms3_order_err_payment_delivery'] = 'Способ оплаты недоступен для выбранной доставки';
 $_lang['ms3_order_err_customer_id'] = 'Не указан покупатель';
 $_lang['ms3_order_err_customer_contact'] = 'Для создания клиента необходимо указать email или телефон';
 $_lang['ms3_order_err_email'] = 'Не указан email';

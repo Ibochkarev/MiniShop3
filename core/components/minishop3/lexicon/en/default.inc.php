@@ -174,8 +174,11 @@ $_lang['ms3_err_field_nf'] = 'Field not found';
 $_lang['ms3_err_ae'] = 'This field must be unique';
 $_lang['ms3_err_json'] = 'This field requires JSON string';
 $_lang['ms3_repeater_validation_error'] = 'Repeater field "[[+field]]": [[+error]]';
+$_lang['ms3_key_value_validation_error'] = 'Key-value field "[[+field]]": [[+error]]';
 
 $_lang['ms3_err_user_nf'] = 'User not found.';
+$_lang['ms3_err_product_nf'] = 'Product not found.';
+$_lang['ms3_err_product_id_ns'] = 'Product ID is required.';
 $_lang['ms3_err_order_nf'] = 'Order with this identifier not found.';
 $_lang['ms3_err_order_load'] = 'Error loading order.';
 $_lang['ms3_err_order_num_lock'] = 'Could not acquire a lock to generate the order number. Please try again.';
@@ -183,13 +186,19 @@ $_lang['ms3_err_order_num_save'] = 'Could not save the order number. Please try 
 $_lang['ms3_err_product_not_in_category_scope'] = 'Product is not in the scope of this category.';
 $_lang['ms3_err_status_nf'] = 'Status with this identifier not found.';
 $_lang['ms3_err_delivery_nf'] = 'Delivery method with this identifier not found.';
+$_lang['ms3_err_delivery_id_required'] = 'Delivery ID is required';
 $_lang['ms3_err_payment_nf'] = 'Payment method with this identifier not found.';
+$_lang['ms3_err_payment_id_required'] = 'Payment ID is required';
 $_lang['ms3_err_status_final'] = 'Final status is set. It cannot be changed.';
 $_lang['ms3_err_status_fixed'] = 'Fixed status is set. You cannot change it to earlier one.';
 $_lang['ms3_err_status_wrong'] = 'Invalid order status.';
 $_lang['ms3_err_status_same'] = 'This status is already set.';
 $_lang['ms3_err_register_globals'] = 'Error: php parameter <b>register_globals</b> must be disabled.';
 $_lang['ms3_err_link_equal'] = 'You are trying to add product link to itself';
+$_lang['ms3_err_no_link'] = 'Link type not found';
+$_lang['ms3_err_link_save'] = 'Could not save product link (see system log).';
+$_lang['ms3_err_link_not_in_product_scope'] = 'This link does not belong to the current product';
+$_lang['ms3_err_link_batch_not_supported'] = 'Batch link removal is not supported';
 $_lang['ms3_err_value_duplicate'] = 'You did not enter value or entered duplicate.';
 
 $_lang['ms3_err_gallery_save'] = 'Cannot save file (see system log).';
@@ -202,6 +211,38 @@ $_lang['ms3_err_wrong_image'] = 'File is not a valid image.';
 $_lang['ms3_err_gallery_is_not_msproduct'] = '[msGallery] Resource with id = [[+id]] is not a product.';
 $_lang['ms3_err_options_is_not_msproduct'] = '[msOptions] Resource with id = [[+id]] is not a product.';
 $_lang['ms3_err_processor_combo_required'] = 'This processor requires combo: true.';
+
+$_lang['ms3_err_category_id_required'] = 'Category ID is required';
+$_lang['ms3_err_category_nf'] = 'Category not found';
+$_lang['ms3_err_category_products_list_service'] = 'Category products list service is not available';
+$_lang['ms3_err_items_required'] = 'Items array is required';
+$_lang['ms3_err_method_required'] = 'Method is required';
+$_lang['ms3_err_unknown_method'] = 'Unknown method';
+$_lang['ms3_err_access_denied_permission'] = 'Access denied. Required permission: [[+permission]]';
+$_lang['ms3_err_product_ids_required'] = 'Product IDs array is required';
+$_lang['ms3_err_product_ids_invalid'] = 'No valid product IDs provided';
+$_lang['ms3_err_category_products_no_updates'] = 'No products were updated';
+$_lang['ms3_err_product_id_required'] = 'Product ID is required';
+$_lang['ms3_err_product_nf'] = 'Product not found';
+$_lang['ms3_err_product_update_failed'] = 'Failed to update product';
+$_lang['ms3_err_catalog_parents_invalid'] = 'Invalid parents filter';
+$_lang['ms3_err_catalog_parents_limit'] = 'Too many parent category IDs';
+$_lang['ms3_err_catalog_price_invalid'] = 'Invalid price filter';
+$_lang['ms3_err_catalog_price_range'] = 'price_max must be greater than or equal to price_min';
+$_lang['ms3_err_catalog_stock_invalid'] = 'Invalid stock_min filter';
+$_lang['ms3_err_catalog_vendor_invalid'] = 'Invalid vendor_id filter';
+$_lang['ms3_err_catalog_vendor_limit'] = 'Too many vendor IDs';
+$_lang['ms3_err_catalog_options_json'] = 'options must be a JSON object or map';
+$_lang['ms3_err_catalog_options_limit'] = 'Too many option filters or values';
+$_lang['ms3_err_catalog_option_key_invalid'] = 'Invalid option key';
+$_lang['ms3_err_catalog_option_value_invalid'] = 'Invalid option value';
+$_lang['ms3_err_catalog_option_unknown'] = 'Unknown option key';
+$_lang['ms3_err_catalog_facet_keys_invalid'] = 'Invalid facet keys parameter';
+$_lang['ms3_err_catalog_facet_keys_limit'] = 'Too many facet option keys';
+$_lang['ms3_category_products_reordered'] = 'Products reordered successfully';
+$_lang['ms3_category_product_published'] = 'Product published';
+$_lang['ms3_category_product_unpublished'] = 'Product unpublished';
+$_lang['ms3_category_products_updated'] = '[[+count]] products updated';
 
 $_lang['ms3_email_subject_new_user'] = 'You placed order #[[+num]] on site [[++site_name]]';
 $_lang['ms3_email_subject_new_manager'] = 'You have new order #[[+num]]';
@@ -231,3 +272,5 @@ $_lang['ms3_vuetools_required'] = 'VueTools package is required for MiniShop3. P
 $_lang['ms3_mgr_order_recalc_invalid_mode'] = 'Invalid order cost recalculation mode.';
 $_lang['ms3_mgr_order_recalc_manual_delivery_missing'] = 'Manual delivery cost (manual_delivery_cost) is required in manual mode.';
 $_lang['ms3_order_cost_recalc_success'] = 'Order cost recalculated';
+$_lang['ms3_order_finalize_cost_recalc_required'] =
+    'Recalculate order cost before finalizing: the selected delivery or payment requires manual cost or force_provider mode.';

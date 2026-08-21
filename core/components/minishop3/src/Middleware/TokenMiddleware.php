@@ -3,6 +3,7 @@
 namespace MiniShop3\Middleware;
 
 use MiniShop3\Router\Middleware\MiddlewareInterface;
+use MiniShop3\Router\ApiErrorCode;
 use MiniShop3\Router\HttpStatus;
 use MiniShop3\Router\Response;
 use MiniShop3\Services\TokenService;
@@ -16,8 +17,10 @@ use MODX\Revolution\modX;
  * Token resolution order:
  * 1. Authorization: Bearer header (mobile apps)
  * 2. HTTP_MS3TOKEN header (legacy)
- * 3. $_REQUEST['ms3_token'] (includes httpOnly cookie via injection)
+ * 3. httpOnly cookie `ms3_token` (injected into $_REQUEST for controllers)
+ * 4. Session cache (still DB-validated)
  *
+ * Query-string `ms3_token` is stripped and never accepted as API credentials (#576).
  * Cookie injection at start of handle() copies $_COOKIE['ms3_token'] → $_REQUEST['ms3_token']
  * for backward compatibility with controllers reading $_REQUEST.
  *
@@ -32,6 +35,14 @@ class TokenMiddleware implements MiddlewareInterface
     private array $publicRoutes = [
         '/api/v1/product/get/',
         '/api/v1/product/list',
+        '/api/v1/product/filters',
+        '/api/v1/category/get/',
+        '/api/v1/category/list',
+        '/api/v1/category/tree',
+        '/api/v1/delivery/get/',
+        '/api/v1/delivery/list',
+        '/api/v1/payment/get/',
+        '/api/v1/payment/list',
         '/api/v1/customer/token/get',
         '/api/v1/customer/logout',
         '/api/v1/health',
@@ -46,21 +57,13 @@ class TokenMiddleware implements MiddlewareInterface
     }
 
     /**
-     * Handle request
-     *
-     * Token resolution order:
-     * 1. Authorization: Bearer header (for mobile apps)
-     * 2. HTTP_MS3TOKEN header (legacy)
-     * 3. $_REQUEST['ms3_token'] (includes httpOnly cookie via injection + legacy URL param)
-     *
-     * Cookie injection: copies $_COOKIE['ms3_token'] → $_REQUEST['ms3_token']
-     * so all controllers (CartController, OrderController, etc.) work without changes.
-     *
      * @param array $params URL parameters from router
      * @return Response|null Return Response to stop execution, or null to continue
      */
     public function handle(array $params)
     {
+        $this->stripQueryStringApiTokens();
+
         // Cookie injection: make cookie token available via $_REQUEST for backward compat
         $cookieToken = CookieHelper::getTokenFromCookie();
         if (!empty($cookieToken) && empty($_REQUEST['ms3_token'])) {
@@ -84,24 +87,15 @@ class TokenMiddleware implements MiddlewareInterface
             $_REQUEST['ms3_token'] = (string) $_SESSION['ms3']['customer_token'];
         }
 
-        // Resolve token from multiple sources
-        $token = $this->resolveToken();
+        // Resolve token (middleware order; login bind uses getBindableTokenString)
+        $token = TokenService::resolveTokenFromRequest();
 
         // If a token is present, always validate it (do not skip via session bypass).
         if (!empty($token)) {
             $resolved = $tokenService->resolveApiToken($token);
 
             if ($resolved['reason'] === 'ok') {
-                $tokenObj = $resolved['token'];
-
-                if (!isset($_SESSION['ms3'])) {
-                    $_SESSION['ms3'] = [];
-                }
-                $_SESSION['ms3']['customer_token'] = $token;
-                $_SESSION['ms3']['customer_id'] = $tokenObj->get('customer_id');
-                $_SESSION['ms3']['customer_token_expires'] = strtotime($tokenObj->get('expires_at'));
-
-                CookieHelper::setTokenCookie($this->modx, $token);
+                $tokenService->syncSessionFromToken($resolved['token']);
                 $_REQUEST['ms3_token'] = $token;
 
                 return null;
@@ -115,7 +109,7 @@ class TokenMiddleware implements MiddlewareInterface
                         modX::LOG_LEVEL_INFO,
                         '[TokenMiddleware] Rejected expired API token: ' . substr($token, 0, 16) . '...'
                     );
-                    return Response::error('ms3_err_token_expired', HttpStatus::UNAUTHORIZED);
+                    return $this->unauthorizedError(ApiErrorCode::TOKEN_EXPIRED, 'ms3_err_token_expired');
                 }
             } elseif (!$isPublic) {
                 $this->modx->log(
@@ -123,7 +117,7 @@ class TokenMiddleware implements MiddlewareInterface
                     '[TokenMiddleware] Token not found in database. Token: ' . substr($token, 0, 16) . '...'
                 );
                 // Keep machine-stable keys in message — ApiClient.isTokenError() matches them
-                return Response::error('ms3_err_token_invalid', HttpStatus::UNAUTHORIZED);
+                return $this->unauthorizedError(ApiErrorCode::TOKEN_INVALID, 'ms3_err_token_invalid');
             }
         } elseif (!$isPublic && !empty($_SESSION['ms3']['customer_id'])) {
             // Stale session identity without a resolvable token must not bypass revoke.
@@ -139,10 +133,22 @@ class TokenMiddleware implements MiddlewareInterface
                 return null;
             }
 
-            return Response::error('ms3_customer_err_token_create', HttpStatus::UNAUTHORIZED);
+            return Response::errorWithCode(
+                ApiErrorCode::INTERNAL_ERROR,
+                'ms3_customer_err_token_create',
+                HttpStatus::INTERNAL_SERVER_ERROR
+            );
         }
 
         return null;
+    }
+
+    /**
+     * Token reject / mint failure (401 + machine error_code).
+     */
+    private function unauthorizedError(string $errorCode, string $message): Response
+    {
+        return Response::errorWithCode($errorCode, $message, HttpStatus::UNAUTHORIZED);
     }
 
     /**
@@ -160,37 +166,17 @@ class TokenMiddleware implements MiddlewareInterface
     }
 
     /**
-     * Resolve token from request sources
-     *
-     * @return string Token or empty string
+     * Remove API session token from the query string so controllers cannot pick it up (#576).
+     * Email verification uses `?token=` on a route without this middleware.
      */
-    private function resolveToken(): string
+    private function stripQueryStringApiTokens(): void
     {
-        // 1. Authorization: Bearer header (for mobile apps)
-        $authHeader = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
-        if (str_starts_with($authHeader, 'Bearer ')) {
-            $token = substr($authHeader, 7);
-            if (!empty($token)) {
-                return $token;
-            }
+        if (!array_key_exists('ms3_token', $_GET)) {
+            return;
         }
 
-        // 2. HTTP_MS3TOKEN header (legacy)
-        $token = $_SERVER['HTTP_MS3TOKEN'] ?? '';
-        if (!empty($token)) {
-            return $token;
-        }
-
-        // 3. $_REQUEST (includes cookie via injection + legacy URL param)
-        $token = $_REQUEST['ms3_token'] ?? $_REQUEST['token'] ?? '';
-        if (!empty($token)) {
-            return $token;
-        }
-
-        // 4. Session cache (must still pass DB validation in handle())
-        return $_SESSION['ms3']['customer_token'] ?? '';
+        unset($_GET['ms3_token'], $_REQUEST['ms3_token']);
     }
-
 
     /**
      * Check if route is public

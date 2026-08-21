@@ -11,6 +11,8 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
 import ProductGallery from '../gallery/ProductGallery.vue'
 import ProductDataFields from '../ProductDataFields.vue'
+import ProductCategoriesTab from './ProductCategoriesTab.vue'
+import ProductLinksTab from './ProductLinksTab.vue'
 import ProductOptionsTab from './ProductOptionsTab.vue'
 
 const props = defineProps({
@@ -27,6 +29,36 @@ const props = defineProps({
     default: () => ({}),
   },
 })
+
+/** Built-in Vue tabs: single map instead of per-tab v-else-if branches (#350). */
+const builtInVueComponents = {
+  ProductDataFields,
+  ProductGallery,
+  ProductCategoriesTab,
+  ProductLinksTab,
+  ProductOptionsTab,
+}
+
+function builtInVueTabProps(tab) {
+  switch (tab.component) {
+    case 'ProductDataFields':
+      return { productId: props.productId, productData: props.record }
+    case 'ProductGallery':
+      return { productId: props.productId, record: props.record, config: props.config }
+    case 'ProductCategoriesTab':
+      return {
+        productId: props.productId,
+        parentId: props.record.parent || 0,
+        initialCategories: props.record.categories || [],
+      }
+    case 'ProductLinksTab':
+      return { productId: props.productId }
+    case 'ProductOptionsTab':
+      return { optionFields: props.config.option_fields || [] }
+    default:
+      return {}
+  }
+}
 
 const { _ } = useLexicon()
 useToast() // Required for Toast component to work
@@ -80,13 +112,8 @@ const tabConfig = computed(() => {
     tabs.push({
       key: 'categories',
       title: _('ms3_tab_product_categories'),
-      type: 'extjs',
-      xtype: 'ms3-tree-categories',
-      extConfig: {
-        parent: props.record.parent || 0,
-        resource: props.record.id || 0,
-        categories: props.record.categories || [],
-      },
+      type: 'vue',
+      component: 'ProductCategoriesTab',
       position: 2,
     })
   }
@@ -95,11 +122,8 @@ const tabConfig = computed(() => {
     tabs.push({
       key: 'links',
       title: _('ms3_tab_product_links'),
-      type: 'extjs',
-      xtype: 'ms3-product-links',
-      extConfig: {
-        record: props.record,
-      },
+      type: 'vue',
+      component: 'ProductLinksTab',
       position: 3,
     })
   }
@@ -307,20 +331,12 @@ onBeforeUnmount(() => {
       </TabList>
       <TabPanels>
         <TabPanel v-for="(tab, idx) in tabConfig" :key="tab.key" :value="String(idx)">
-          <!-- Vue component: ProductDataFields -->
-          <template v-if="tab.type === 'vue' && tab.component === 'ProductDataFields'">
-            <ProductDataFields :product-id="productId" :product-data="record" />
-          </template>
-
-          <!-- Vue component: ProductGallery -->
-          <template v-else-if="tab.type === 'vue' && tab.component === 'ProductGallery'">
-            <ProductGallery :product-id="productId" :record="record" :config="config" />
-          </template>
-
-          <!-- Vue component: ProductOptionsTab -->
-          <template v-else-if="tab.type === 'vue' && tab.component === 'ProductOptionsTab'">
-            <ProductOptionsTab :option-fields="config.option_fields || []" />
-          </template>
+          <!-- Built-in Vue tabs -->
+          <component
+            :is="builtInVueComponents[tab.component]"
+            v-if="tab.type === 'vue' && builtInVueComponents[tab.component]"
+            v-bind="builtInVueTabProps(tab)"
+          />
 
           <!-- ExtJS component container -->
           <template v-else-if="tab.type === 'extjs'">
@@ -368,13 +384,4 @@ onBeforeUnmount(() => {
   padding: 0.625rem;
 }
 
-/* Categories tree styles */
-#ms3-product-tab-categories :deep(.x-tree-view) {
-  min-height: 18.75rem;
-}
-
-/* Links grid styles */
-#ms3-product-tab-links :deep(.x-grid-view) {
-  min-height: 12.5rem;
-}
 </style>

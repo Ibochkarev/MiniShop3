@@ -5,9 +5,9 @@
  */
 import { useLexicon } from '@vuetools/useLexicon'
 import { useConfirm } from 'primevue/useconfirm'
-import { useToast } from 'primevue/usetoast'
 
 import actionRegistry from '../actionRegistry.js'
+import { resolveUiGroup, toUiGroup, useGroupedToast } from './uiGroup.js'
 
 /**
  * Composable for working with grid actions
@@ -22,14 +22,18 @@ import actionRegistry from '../actionRegistry.js'
  * @param {Function} options.onPublish - Callback for publishing/unpublishing
  * @param {Function} options.onDuplicate - Callback for duplicating
  * @param {Function} options.onCustomAction - Callback for custom actions (event, data)
+ * @param {string} [options.uiGroup] ConfirmDialog/Toast group (or app provide MS3_UI_GROUP).
+ *   Omit to stay ungrouped (backward compatible).
+ * @param {string} [options.confirmGroup] Deprecated alias of `uiGroup`.
  */
 export function useActions(options = {}) {
-  const toast = useToast()
   const confirm = useConfirm()
   const { _ } = useLexicon()
 
   const {
     gridId = 'unknown',
+    uiGroup: uiGroupOption = null,
+    confirmGroup = null,
     onRefresh = () => {},
     onEdit = () => {},
     onDelete = () => {},
@@ -39,6 +43,9 @@ export function useActions(options = {}) {
     onDuplicate = () => {},
     onCustomAction = () => {},
   } = options
+
+  const uiGroup = resolveUiGroup(uiGroupOption || confirmGroup)
+  const toast = useGroupedToast(uiGroup)
 
   /**
    * Create context for action execution
@@ -105,6 +112,7 @@ export function useActions(options = {}) {
           : _('action_confirm_title')
 
         confirm.require({
+          group: toUiGroup(uiGroup),
           message,
           header,
           icon: 'pi pi-exclamation-triangle',

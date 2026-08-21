@@ -3,10 +3,9 @@
 namespace MiniShop3\Controllers\Order;
 
 use MiniShop3\MiniShop3;
-use MiniShop3\Model\msDeliveryMember;
 use MiniShop3\Model\msOrder;
 use MiniShop3\Model\msOrderLog;
-use MiniShop3\Model\msPayment;
+use MiniShop3\Services\Cart\CartDraftContext;
 use MiniShop3\Services\Order\OrderAddressManager;
 use MiniShop3\Services\Order\OrderCostCalculator;
 use MiniShop3\Services\Order\OrderDraftManager;
@@ -17,13 +16,21 @@ use MiniShop3\Services\Order\OrderUserResolver;
 use MODX\Revolution\modX;
 
 /**
- * Order Controller (Facade)
+ * Domain facade for the order workflow (not an HTTP controller).
+ *
+ * Lives under Controllers\ for MS2-style compatibility, but does not handle
+ * FastRoute requests. HTTP entry points live under Controllers\Api\Web\*
+ * (and Manager API where applicable). Registered as DI key `ms3_order`;
+ * typically reached via `$ms3->order`.
  *
  * Manages order workflow: draft creation, field updates, cost calculation,
  * and order submission. Delegates business logic to specialized services.
  *
  * This class maintains backward compatibility while internally using
  * the new service-based architecture.
+ *
+ * @see \MiniShop3\Controllers\Api\Web\OrderController
+ * @see \MiniShop3\ServiceRegistry
  */
 class Order
 {
@@ -50,7 +57,8 @@ class Order
     {
         $this->ms3 = $ms3;
         $this->modx = $ms3->modx;
-        $this->ctx = $ms3->config['ctx'] ?? 'web';
+        $pageCtx = $ms3->config['ctx'] ?? CartDraftContext::DEFAULT_CONTEXT;
+        $this->ctx = CartDraftContext::resolve($this->modx, $pageCtx);
         $this->config = array_merge([], $config);
 
         $this->modx->lexicon->load('minishop3:cart');
@@ -139,6 +147,8 @@ class Order
             return false;
         }
         $this->token = $token;
+        $pageCtx = $this->ms3->config['ctx'] ?? CartDraftContext::DEFAULT_CONTEXT;
+        $this->ctx = CartDraftContext::resolve($this->modx, $pageCtx);
         $this->config = array_merge($this->config, $config);
 
         // Load validation rules from a session
@@ -347,20 +357,32 @@ class Order
 
     /**
      * Set multiple order fields at once
+     *
+     * No batch msOn*SetOrder events in MS2/MS3: each field goes through add() and
+     * msOnBeforeAddToOrder / msOnAddToOrder (with returnedValues). This method only
+     * aggregates per-field failures for the API response.
      */
     public function set(array $order): array
     {
         $this->initDraft();
         $this->ensureOrderLoaded();
 
-        // TODO: Event before set
-        // TODO: Collect array of possible validation errors
+        $errors = [];
         foreach ($order as $key => $value) {
-            $this->add($key, $value);
+            $response = $this->add($key, $value);
+            if (!$response['success']) {
+                $errors[$key] = $response['message'];
+            }
         }
-        // TODO: Event on set
 
         $this->order = $this->draftManager->toArray($this->draft);
+
+        if (!empty($errors)) {
+            return $this->error('ms3_order_err_validation', [
+                'order' => $this->order,
+                'errors' => $errors,
+            ]);
+        }
 
         return $this->success('ms3_order_set_success', ['order' => $this->order]);
     }
@@ -401,7 +423,10 @@ class Order
             return $this->success('ms3_order_clean_success');
         }
 
-        $this->draftManager->clean($this->draft);
+        $result = $this->draftManager->clean($this->draft);
+        if ($result !== true) {
+            return $this->error($result !== '' ? $result : 'ms3_err_unknown');
+        }
 
         return $this->success('ms3_order_clean_success');
     }
@@ -489,14 +514,10 @@ class Order
      */
     public function hasPayment(int $delivery, int $payment): bool
     {
-        $q = $this->modx->newQuery(msPayment::class, ['id' => $payment, 'active' => 1]);
-        $q->innerJoin(
-            msDeliveryMember::class,
-            'Member',
-            'Member.payment_id = msPayment.id AND Member.delivery_id = ' . $delivery
-        );
+        /** @var \MiniShop3\Services\Delivery\DeliveryService $deliveryService */
+        $deliveryService = $this->modx->services->get('ms3_delivery_service');
 
-        return (bool)$this->modx->getCount(msPayment::class, $q);
+        return $deliveryService->isPaymentAvailableForDelivery($delivery, $payment);
     }
 
     /**

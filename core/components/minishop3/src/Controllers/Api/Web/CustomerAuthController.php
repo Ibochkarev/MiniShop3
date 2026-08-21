@@ -4,10 +4,12 @@ namespace MiniShop3\Controllers\Api\Web;
 
 use MiniShop3\Router\HttpStatus;
 use MiniShop3\Router\Response;
+use MiniShop3\Services\Customer\CustomerSessionService;
+use MiniShop3\Services\TokenService;
 use MODX\Revolution\modX;
 
 /**
- * CustomerAuthController — login, register, logout, password recovery (Web API).
+ * CustomerAuthController — login, register, logout, password recovery, session (Web API).
  *
  * Delegates to Processors\Api\Customer\* and maps processor failures to HTTP responses.
  */
@@ -47,6 +49,34 @@ class CustomerAuthController
     public function resetPasswordFromRequest(): Response
     {
         return $this->resetPassword($this->readJsonBody());
+    }
+
+    /**
+     * GET /api/v1/customer/me
+     */
+    public function me(): Response
+    {
+        $payload = $this->sessionService()->buildMePayload($this->requestToken());
+        if ($payload === null) {
+            return Response::error('ms3_err_token_invalid', HttpStatus::UNAUTHORIZED);
+        }
+
+        return Response::success($payload);
+    }
+
+    /**
+     * POST /api/v1/customer/token/refresh
+     */
+    public function refreshToken(): Response
+    {
+        /** @var TokenService $tokenService */
+        $tokenService = $this->modx->services->get('ms3_token_service');
+        $rotated = $tokenService->rotateApiToken($this->requestToken());
+        if ($rotated === null) {
+            return Response::error('ms3_err_token_invalid', HttpStatus::UNAUTHORIZED);
+        }
+
+        return Response::success($rotated);
     }
 
     /**
@@ -123,29 +153,34 @@ class CustomerAuthController
         ]);
     }
 
+    private function requestToken(): string
+    {
+        return TokenService::resolveTokenFromRequest();
+    }
+
+    private function sessionService(): CustomerSessionService
+    {
+        /** @var TokenService $tokenService */
+        $tokenService = $this->modx->services->get('ms3_token_service');
+        $ms3 = $this->modx->services->get('ms3');
+
+        return new CustomerSessionService($this->modx, $tokenService, $ms3);
+    }
+
     /**
      * @param array<string, mixed> $properties
      */
     private function runProcessor(string $processorClass, array $properties): Response
     {
-        /** @var object $response */
         $response = $this->modx->runProcessor($processorClass, $properties);
 
-        return $this->toResponse($response);
-    }
-
-    private function toResponse(object $response): Response
-    {
-        if ($response->isError()) {
-            $payload = $response->getObject();
-            $status = HttpStatus::BAD_REQUEST;
-            if (is_array($payload) && isset($payload['code']) && is_numeric($payload['code'])) {
-                $status = (int) $payload['code'];
-            }
-
-            return Response::error($response->getMessage(), $status);
+        if (!is_object($response)) {
+            return Response::error(
+                'Processor failed',
+                HttpStatus::INTERNAL_SERVER_ERROR
+            );
         }
 
-        return Response::success($response->getObject(), $response->getMessage());
+        return Response::fromProcessor($response);
     }
 }

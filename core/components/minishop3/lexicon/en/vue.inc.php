@@ -161,6 +161,7 @@ $_lang['ms3_vue_xtype_textarea'] = 'Text Area';
 $_lang['ms3_vue_xtype_xcheckbox'] = 'Checkbox';
 $_lang['ms3_vue_xtype_combo_select'] = 'Dropdown List';
 $_lang['ms3_vue_xtype_repeater'] = 'Repeater (rows grid)';
+$_lang['ms3_vue_xtype_key_value'] = 'Key-Value (map)';
 $_lang['ms3_vue_xtype_combo_vendor'] = 'Vendor (combo)';
 $_lang['ms3_vue_xtype_combo_autocomplete'] = 'Autocomplete (combo)';
 $_lang['ms3_vue_xtype_combo_options'] = 'Product Options (chips)';
@@ -186,6 +187,26 @@ $_lang['ms3_vue_repeater_sortable'] = 'Drag-and-drop sorting';
 $_lang['ms3_vue_repeater_add_row'] = 'Add row';
 $_lang['ms3_vue_repeater_no_columns'] = 'Configure repeater columns in extra field settings.';
 $_lang['ms3_vue_repeater_drag_hint'] = 'Drag to reorder';
+
+// Key-Value field
+$_lang['ms3_vue_key_value_schema_label'] = 'Key-Value schema';
+$_lang['ms3_vue_key_value_schema_help'] = 'Define keys for fixed mode or use free mode for any pairs.';
+$_lang['ms3_vue_key_value_mode'] = 'Mode';
+$_lang['ms3_vue_key_value_mode_fixed'] = 'Fixed keys';
+$_lang['ms3_vue_key_value_mode_free'] = 'Free keys';
+$_lang['ms3_vue_key_value_keys'] = 'Keys';
+$_lang['ms3_vue_key_value_add_key'] = 'Add key';
+$_lang['ms3_vue_key_value_key'] = 'Key';
+$_lang['ms3_vue_key_value_label'] = 'Label';
+$_lang['ms3_vue_key_value_value'] = 'Value';
+$_lang['ms3_vue_key_value_add_pair'] = 'Add pair';
+$_lang['ms3_vue_key_value_value_type'] = 'Value type';
+$_lang['ms3_vue_key_value_value_type_string'] = 'String';
+$_lang['ms3_vue_key_value_value_type_number'] = 'Number';
+$_lang['ms3_vue_key_value_required'] = 'Required';
+$_lang['ms3_vue_key_value_no_keys'] = 'No keys defined. Add keys in extra field settings for fixed mode.';
+$_lang['ms3_vue_key_value_duplicate_key'] = 'Duplicate key "[[+key]]". Only the first value is kept.';
+
 $_lang['ms3_vue_order_extra_fields'] = 'Additional order fields';
 $_lang['ms3_vue_order_address_extra_fields'] = 'Additional address fields';
 
@@ -770,11 +791,14 @@ $_lang['ms3_order_finalize_confirm'] = 'Confirm Order Finalization';
 $_lang['ms3_order_finalize_confirm_desc'] = 'After finalization, the order will receive a number, status will change to "New", and notifications will be sent.';
 $_lang['ms3_order_finalized'] = 'Order successfully finalized';
 $_lang['ms3_order_finalize_error'] = 'Error finalizing order';
+$_lang['ms3_order_finalize_cost_recalc_required'] =
+    'Recalculate order cost before finalizing: the selected delivery or payment requires manual cost or force_provider mode.';
 $_lang['ms3_order_is_draft'] = 'Draft';
 $_lang['ms3_order_err_validation'] = 'Order data validation error';
 $_lang['ms3_order_err_products'] = 'Order has no products';
 $_lang['ms3_order_err_delivery_id'] = 'Delivery method is not selected';
 $_lang['ms3_order_err_payment_id'] = 'Payment method is not selected';
+$_lang['ms3_order_err_payment_delivery'] = 'Payment method is not available for the selected delivery method';
 $_lang['ms3_order_err_customer_id'] = 'Customer is not specified';
 $_lang['ms3_order_err_customer_contact'] = 'Email or phone is required to create a customer';
 $_lang['ms3_order_err_email'] = 'Email is not specified';
