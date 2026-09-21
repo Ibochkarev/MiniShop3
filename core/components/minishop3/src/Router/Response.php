@@ -24,6 +24,8 @@ class Response
     /** @var string|null HTTP redirect target (Location) */
     protected ?string $redirectUrl = null;
 
+    private const JSON_ENCODE_FLAGS = JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES;
+
     public function __construct($data, int $statusCode = HttpStatus::OK, array $headers = [])
     {
         $this->data = $data;
@@ -274,9 +276,8 @@ class Response
      */
     public function send(): void
     {
-        http_response_code($this->statusCode);
-
         if ($this->redirectUrl !== null) {
+            http_response_code($this->statusCode);
             header('Location: ' . $this->redirectUrl);
             foreach ($this->headers as $name => $value) {
                 header("{$name}: {$value}");
@@ -284,13 +285,227 @@ class Response
             exit;
         }
 
+        $body = $this->encodeJsonBody(self::resolveModxLogger());
+
+        http_response_code($this->statusCode);
         header('Content-Type: application/json; charset=utf-8');
         foreach ($this->headers as $name => $value) {
             header("{$name}: {$value}");
         }
 
-        echo json_encode($this->data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        echo $body;
         exit;
+    }
+
+    /**
+     * Encode response payload for the wire (#654).
+     *
+     * Never returns an empty string: invalid UTF-8 is substituted (U+FFFD) after a MODX
+     * log line; if encoding still fails, status becomes 500 and a static ASCII envelope
+     * is returned.
+     */
+    public function encodeJsonBody(?object $modx = null): string
+    {
+        $json = self::encodeJsonUtf8Safe($this->data, $modx);
+        if ($json !== null) {
+            return $json;
+        }
+
+        $this->statusCode = HttpStatus::INTERNAL_SERVER_ERROR;
+        $this->data = [
+            'success' => false,
+            'message' => 'Internal server error',
+            'code' => HttpStatus::INTERNAL_SERVER_ERROR,
+            'errors' => null,
+            'error_code' => ApiErrorCode::INTERNAL_ERROR,
+        ];
+
+        $fallback = json_encode($this->data, self::JSON_ENCODE_FLAGS);
+        return $fallback !== false ? $fallback : '{"success":false,"message":"Internal server error","code":500,"errors":null,"error_code":"internal_error"}';
+    }
+
+    /**
+     * Return a JSON-encodable copy of $data for MODX connector toJSON() (#671).
+     *
+     * Same UTF-8 handling as {@see encodeJsonBody()}: log invalid paths (hex snippets only),
+     * then substitute invalid sequences. Returns $data unchanged when already encodable.
+     * When encoding still fails (e.g. NAN), returns null so the caller can fail closed.
+     */
+    public static function sanitizeUtf8ForJson(mixed $data, ?object $modx = null): mixed
+    {
+        if (json_encode($data, self::JSON_ENCODE_FLAGS) !== false) {
+            return $data;
+        }
+
+        $json = self::encodeJsonSubstitutingUtf8($data, $modx);
+        if ($json === null) {
+            return null;
+        }
+
+        $decoded = json_decode($json, true);
+
+        return json_last_error() === JSON_ERROR_NONE ? $decoded : null;
+    }
+
+    /**
+     * Envelope that modConnectorResponse::outputContent() passes to toJSON().
+     *
+     * @param array<string, mixed> $body Processor success()/failure() array
+     *
+     * @return array<string, mixed>
+     */
+    public static function connectorProcessorEnvelope(array $body, ?object $modx = null): array
+    {
+        $errorMessage = ($modx !== null && method_exists($modx, 'lexicon'))
+            ? (string) $modx->lexicon('error')
+            : 'error';
+
+        return [
+            'success' => $body['success'] ?? 0,
+            'message' => $body['message'] ?? $errorMessage,
+            'total' => (isset($body['total']) && $body['total'] > 0)
+                ? (int) $body['total']
+                : (isset($body['errors']) ? count($body['errors']) : 1),
+            'data' => $body['errors'] ?? [],
+            'object' => $body['object'] ?? [],
+        ];
+    }
+
+    /**
+     * JSON for the MiniShop3 connector die() path (#689). Never returns an empty string.
+     *
+     * @return array{0: string, 1: bool} Encoded body and whether encoding failed closed
+     */
+    public static function encodeConnectorJson(mixed $data, ?object $modx = null): array
+    {
+        $clean = self::sanitizeUtf8ForJson($data, $modx);
+        $json = $clean !== null ? json_encode($clean) : false;
+
+        if ($json === false) {
+            return [self::connectorFailClosedJson(), true];
+        }
+
+        return [$json, false];
+    }
+
+    public static function connectorFailClosedJson(): string
+    {
+        return '{"success":false,"message":"Internal server error","total":1,"data":[],"object":{"code":500}}';
+    }
+
+    /**
+     * json_encode with UTF-8 substitute fallback and MODX logging (#654 / #671).
+     *
+     * @return string|null JSON string, or null when unencodable even after substitute.
+     */
+    private static function encodeJsonUtf8Safe(mixed $data, ?object $modx): ?string
+    {
+        $json = json_encode($data, self::JSON_ENCODE_FLAGS);
+        if ($json !== false) {
+            return $json;
+        }
+
+        return self::encodeJsonSubstitutingUtf8($data, $modx);
+    }
+
+    /**
+     * Log + re-encode with JSON_INVALID_UTF8_SUBSTITUTE after a failed first encode.
+     */
+    private static function encodeJsonSubstitutingUtf8(mixed $data, ?object $modx): ?string
+    {
+        self::logJsonEncodeFailure($modx, json_last_error_msg(), $data);
+
+        $json = json_encode($data, self::JSON_ENCODE_FLAGS | JSON_INVALID_UTF8_SUBSTITUTE);
+        if ($json === false) {
+            self::logJsonEncodeFailure($modx, json_last_error_msg(), $data, true);
+
+            return null;
+        }
+
+        return $json;
+    }
+
+    /**
+     * Encode an arbitrary payload with the same UTF-8 safety as {@see encodeJsonBody()} (#654).
+     *
+     * Used by api.php (storefront does not call send()).
+     */
+    public static function encodeJson(mixed $data, ?object $modx = null): string
+    {
+        $response = new self($data);
+
+        return $response->encodeJsonBody($modx);
+    }
+
+    /**
+     * @param object|null $modx Object with log($level, $message)
+     */
+    private static function logJsonEncodeFailure(
+        ?object $modx,
+        string $jsonError,
+        mixed $data,
+        bool $afterSubstitute = false,
+    ): void {
+        if ($modx === null || !method_exists($modx, 'log')) {
+            return;
+        }
+
+        $paths = self::collectInvalidUtf8Paths($data);
+        $pathHint = $paths === []
+            ? 'no invalid UTF-8 strings found (non-UTF8 failure?)'
+            : implode('; ', array_slice($paths, 0, 20));
+        $phase = $afterSubstitute ? 'after UTF-8 substitute' : 'initial encode';
+
+        $level = class_exists(\MODX\Revolution\modX::class, false)
+            ? \MODX\Revolution\modX::LOG_LEVEL_ERROR
+            : 3;
+
+        $modx->log(
+            $level,
+            '[MiniShop3 Response] json_encode failed (' . $phase . '): '
+            . $jsonError . '. Invalid paths: ' . $pathHint
+        );
+    }
+
+    /**
+     * @return list<string>
+     */
+    private static function collectInvalidUtf8Paths(mixed $data, string $prefix = ''): array
+    {
+        if (is_string($data)) {
+            if (mb_check_encoding($data, 'UTF-8')) {
+                return [];
+            }
+            $label = $prefix === '' ? '(root)' : $prefix;
+            $snippet = substr($data, 0, 16);
+
+            return [$label . ' hex=' . bin2hex($snippet)];
+        }
+
+        if (!is_array($data)) {
+            return [];
+        }
+
+        $paths = [];
+        foreach ($data as $key => $value) {
+            $child = $prefix === '' ? (string) $key : $prefix . '.' . $key;
+            $paths = array_merge($paths, self::collectInvalidUtf8Paths($value, $child));
+            if (count($paths) >= 20) {
+                break;
+            }
+        }
+
+        return $paths;
+    }
+
+    private static function resolveModxLogger(): ?object
+    {
+        $modx = $GLOBALS['modx'] ?? null;
+        if (!is_object($modx) || !method_exists($modx, 'log')) {
+            return null;
+        }
+
+        return $modx;
     }
 
     /**

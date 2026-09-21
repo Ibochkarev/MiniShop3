@@ -1,21 +1,6 @@
 <script setup>
 import { useLexicon } from '@vuetools/useLexicon'
-import Button from 'primevue/button'
-import Card from 'primevue/card'
-import Checkbox from 'primevue/checkbox'
-import ConfirmDialog from 'primevue/confirmdialog'
-import Dialog from 'primevue/dialog'
-import InputText from 'primevue/inputtext'
-import Paginator from 'primevue/paginator'
-import Tab from 'primevue/tab'
-import TabList from 'primevue/tablist'
-import TabPanel from 'primevue/tabpanel'
-import TabPanels from 'primevue/tabpanels'
-import Tabs from 'primevue/tabs'
-import Textarea from 'primevue/textarea'
-import Toast from 'primevue/toast'
-import { useConfirm } from 'primevue/useconfirm'
-import { useToast } from 'primevue/usetoast'
+import { Button, Card, Checkbox, ConfirmDialog, Dialog, InputText, Paginator, Tab, TabList, TabPanel, TabPanels, Tabs, Textarea, Toast, useToast } from 'primevue'
 import { computed, onMounted, ref } from 'vue'
 import draggable from 'vuedraggable'
 
@@ -25,15 +10,21 @@ import { useSelection } from '../composables/useSelection.js'
 import { useSortableList } from '../composables/useSortableList.js'
 import request from '../request.js'
 import { formatValue, normalizeImagePath } from '../utils/displayFormatters.js'
+import { applyDeleteConfirmDefaults, gridDeleteAction } from '../utils/gridDeleteAction.js'
+import { getPrimarySaveSeverity } from '../utils/primevueTheme.js'
 import ActionsColumn from './ActionsColumn.vue'
 import DynamicField from './DynamicField.vue'
 import FileBrowser from './FileBrowser.vue'
 
 const toast = useToast()
-const confirm = useConfirm()
 const { _ } = useLexicon()
+const primarySaveSeverity = getPrimarySaveSeverity()
 
 const CONFIRM_GROUP = 'settings-vendors'
+
+const VENDOR_GRID_DELETE_ACTION = gridDeleteAction({
+  confirmMessage: 'vendor_delete_confirm_message',
+})
 
 // Bulk selection
 const {
@@ -309,38 +300,27 @@ async function saveVendor() {
 }
 
 /**
- * Delete vendor with confirmation
+ * Delete vendor (called after confirmation in ActionsColumn / useActions)
  */
-function deleteVendor(vendor) {
-  confirm.require({
-    group: CONFIRM_GROUP,
-    message: _('vendor_delete_confirm_message').replace('{name}', vendor.name),
-    header: _('confirm_delete'),
-    icon: 'pi pi-exclamation-triangle',
-    acceptLabel: _('delete'),
-    rejectLabel: _('cancel'),
-    acceptClass: 'p-button-danger',
-    accept: async () => {
-      try {
-        await request.delete(`/api/mgr/vendors/${vendor.id}`)
-        toast.add({
-          severity: 'success',
-          summary: _('success'),
-          detail: _('vendor_deleted'),
-          life: 3000,
-        })
-        loadVendors()
-      } catch (error) {
-        console.error('[VendorsGrid] Error deleting vendor:', error)
-        toast.add({
-          severity: 'error',
-          summary: _('error'),
-          detail: error.message || _('error_deleting_data'),
-          life: 5000,
-        })
-      }
-    },
-  })
+async function deleteVendor(vendor) {
+  try {
+    await request.delete(`/api/mgr/vendors/${vendor.id}`)
+    toast.add({
+      severity: 'success',
+      summary: _('success'),
+      detail: _('vendor_deleted'),
+      life: 3000,
+    })
+    await loadVendors()
+  } catch (error) {
+    console.error('[VendorsGrid] Error deleting vendor:', error)
+    toast.add({
+      severity: 'error',
+      summary: _('error'),
+      detail: error.message || _('error_deleting_data'),
+      life: 5000,
+    })
+  }
 }
 
 /**
@@ -369,30 +349,22 @@ function onSelectAllChange() {
   }
 }
 
-/**
- * Get actions config for ActionsColumn
- */
 function getActionsConfig(column) {
   // Fallback actions if not configured
   if (!column.actions || column.actions.length === 0) {
     return [
       { name: 'edit', handler: 'edit', icon: 'pi-pencil', label: _('edit') },
-      {
-        name: 'delete',
-        handler: 'delete',
-        icon: 'pi-trash',
-        label: _('delete'),
-        severity: 'danger',
-        confirm: false,
-        confirmMessage: 'vendor_delete_confirm_message',
-      },
+      { ...VENDOR_GRID_DELETE_ACTION, label: _('delete') },
     ]
   }
 
-  return column.actions.map(action => ({
-    ...action,
-    label: _(action.label) || action.label,
-  }))
+  return applyDeleteConfirmDefaults(
+    column.actions.map(action => ({
+      ...action,
+      label: _(action.label) || action.label,
+    })),
+    { confirmMessage: 'vendor_delete_confirm_message' }
+  )
 }
 
 /**
@@ -444,15 +416,7 @@ function getDefaultColumns() {
       type: 'actions',
       actions: [
         { name: 'edit', handler: 'edit', icon: 'pi-pencil', label: 'edit' },
-        {
-          name: 'delete',
-          handler: 'delete',
-          icon: 'pi-trash',
-          label: 'delete',
-          severity: 'danger',
-          confirm: false,
-          confirmMessage: 'vendor_delete_confirm_message',
-        },
+        { ...VENDOR_GRID_DELETE_ACTION },
       ],
     },
   ]
@@ -805,7 +769,7 @@ onMounted(async () => {
           severity="secondary"
           @click="editDialogVisible = false"
         />
-        <Button :label="_('save')" icon="pi pi-check" :loading="saving" @click="saveVendor" />
+        <Button :label="_('save')" icon="pi pi-check" :severity="primarySaveSeverity" :loading="saving" @click="saveVendor" />
       </template>
     </Dialog>
   </div>

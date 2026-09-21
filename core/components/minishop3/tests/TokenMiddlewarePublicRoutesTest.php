@@ -9,6 +9,12 @@
 
 declare(strict_types=1);
 
+require __DIR__ . '/stubs/ModxStub.php';
+require __DIR__ . '/../vendor/autoload.php';
+
+use MiniShop3\Middleware\TokenMiddleware;
+use MODX\Revolution\modX;
+
 $fail = static function (string $message): never {
     fwrite(STDERR, "FAIL: {$message}\n");
     exit(1);
@@ -35,18 +41,28 @@ if (in_array('/api/v1/cart/get', $publicRoutes, true)) {
     $fail('cart/get must not be public — otherwise guest GET never auto-mints a token (#408)');
 }
 
+if (in_array('/api/v1/product/', $publicRoutes, true)) {
+    $fail('wide /api/v1/product/ prefix would publish the whole product group (#584)');
+}
+
+if (!str_contains($middlewareSrc, "'/api/v1/product/*/images'")) {
+    $fail('publicRoutePatterns must include /api/v1/product/*/images');
+}
+
 foreach (
     [
-        '/api/v1/product/get/',
+        '/api/v1/product/get',
         '/api/v1/product/list',
         '/api/v1/product/filters',
-        '/api/v1/category/get/',
+        '/api/v1/category/get',
         '/api/v1/category/list',
         '/api/v1/category/tree',
-        '/api/v1/delivery/get/',
+        '/api/v1/delivery/get',
         '/api/v1/delivery/list',
-        '/api/v1/payment/get/',
+        '/api/v1/delivery/webhook',
+        '/api/v1/payment/get',
         '/api/v1/payment/list',
+        '/api/v1/payment/webhook/',
         '/api/v1/customer/token/get',
         '/api/v1/health',
     ] as $prefix
@@ -96,6 +112,37 @@ if (
 if (!str_contains($middlewareSrc, 'ApiErrorCode::INTERNAL_ERROR')) {
     $fail('TokenMiddleware mint failure must use internal_error (not token_required)');
 }
+
+if (
+    !str_contains($middlewareSrc, '$route === $publicRoute')
+    || !str_contains($middlewareSrc, "str_starts_with(\$route, \$publicRoute . '/')")
+) {
+    $fail('isPublicRoute must match exact path or segment prefix, not blind str_starts_with');
+}
+
+if (
+    in_array('/api/v1/delivery/get/', $publicRoutes, true)
+    || in_array('/api/v1/payment/get/', $publicRoutes, true)
+) {
+    $fail('delivery/get and payment/get must not keep a trailing slash (breaks segment match)');
+}
+
+// Runtime: trailing-slash entries would leave delivery/get/{id} closed (#579 review)
+$middleware = new TokenMiddleware(new modX());
+$isPublic = new ReflectionMethod(TokenMiddleware::class, 'isPublicRoute');
+$isPublic->setAccessible(true);
+
+$_REQUEST['route'] = '/api/v1/delivery/get/5';
+if ($isPublic->invoke($middleware, '/') !== true) {
+    $fail('delivery/get/{id} must stay public after exact/segment match');
+}
+
+$_REQUEST['route'] = '/api/v1/payment/get/3';
+if ($isPublic->invoke($middleware, '/') !== true) {
+    $fail('payment/get/{id} must stay public after exact/segment match');
+}
+
+unset($_REQUEST['route']);
 
 if (
     !str_contains($middlewareSrc, "'ms3_err_token_expired'")

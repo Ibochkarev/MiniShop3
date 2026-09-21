@@ -6,6 +6,8 @@ use MiniShop3\Controllers\Auth\AuthProviderInterface;
 use MiniShop3\Controllers\Auth\PasswordAuthProvider;
 use MiniShop3\Model\msCustomer;
 use MiniShop3\Model\msCustomerToken;
+use MiniShop3\Services\Cart\CartDraftContext;
+use MiniShop3\Services\Order\OrderAddressManager;
 use MiniShop3\Services\Order\OrderDraftManager;
 use MiniShop3\Services\TokenService;
 use MiniShop3\Utils\CookieHelper;
@@ -129,34 +131,23 @@ class AuthManager
                 $customer = $provider->authenticate($credentials);
 
                 if ($customer) {
-                    if ($customer->get('is_blocked')) {
+                    if (CustomerAccess::isAccessDenied($customer)) {
+                        $inactive = !$customer->get('is_active');
+                        $this->lastAuthFailure = $inactive ? 'inactive' : 'blocked';
                         $blockedUntil = $customer->get('blocked_until');
-                        if ($blockedUntil && strtotime($blockedUntil) > time()) {
-                            $this->lastAuthFailure = 'blocked';
-                            $this->modx->log(
-                                modX::LOG_LEVEL_WARN,
-                                "[AuthManager] Customer #{$customer->id} is blocked until {$blockedUntil}"
-                            );
-                            return null;
-                        }
-                        $customer->set('is_blocked', false);
-                        $customer->set('blocked_until', null);
-                        $customer->set('failed_login_attempts', 0);
-                        if (!$customer->save()) {
-                            $this->modx->log(
-                                modX::LOG_LEVEL_ERROR,
-                                "[AuthManager] Failed to clear block flags for customer #{$customer->id}"
-                            );
-                        }
-                    }
-
-                    if (!$customer->get('is_active')) {
-                        $this->lastAuthFailure = 'inactive';
                         $this->modx->log(
                             modX::LOG_LEVEL_WARN,
-                            "[AuthManager] Customer #{$customer->id} is not active"
+                            $inactive
+                                ? "[AuthManager] Customer #{$customer->id} is not active"
+                                : "[AuthManager] Customer #{$customer->id} is blocked"
+                                    . ($blockedUntil ? " until {$blockedUntil}" : ' (permanent)')
                         );
+
                         return null;
+                    }
+
+                    if (CustomerAccess::isLockoutExpired($customer)) {
+                        CustomerAccess::liftTimedLockout($customer);
                     }
 
                     $customer->set('last_login_at', date('Y-m-d H:i:s'));
@@ -256,10 +247,46 @@ class AuthManager
             session_regenerate_id(true);
         }
 
+        $this->prefillOrderDraftFromCustomer($customer, $tokenString, $draftManager);
+
         return [
             'token' => $tokenString,
             'expires_at' => $tokenObj->get('expires_at'),
         ];
+    }
+
+    /**
+     * Copy empty profile fields from the authenticated customer into their draft order.
+     *
+     * Failures are logged and must not block login/register.
+     */
+    private function prefillOrderDraftFromCustomer(
+        msCustomer $customer,
+        string $token,
+        OrderDraftManager $draftManager
+    ): void {
+        if ($token === '' || !$this->modx->services->has('ms3_order_address_manager')) {
+            return;
+        }
+
+        try {
+            $pageCtx = $this->modx->context->key ?? CartDraftContext::DEFAULT_CONTEXT;
+            $ctx = CartDraftContext::resolve($this->modx, $pageCtx);
+            $draft = $draftManager->findDraftByToken($token, $ctx);
+            if (!$draft) {
+                return;
+            }
+
+            /** @var OrderAddressManager $addressManager */
+            $addressManager = $this->modx->services->get('ms3_order_address_manager');
+            $addressManager->prefillProfileFieldsFromCustomer($draft, $customer);
+        } catch (\Throwable $e) {
+            $this->modx->log(
+                modX::LOG_LEVEL_ERROR,
+                '[AuthManager] prefillOrderDraftFromCustomer failed for customer #'
+                . (int) $customer->get('id') . ': ' . $e->getMessage()
+            );
+        }
     }
 
     /**
@@ -425,7 +452,7 @@ class AuthManager
      * Create token for customer
      *
      * @param msCustomer $customer
-     * @param string $type Token type (api, refresh, magic_link, email_verification)
+     * @param string $type Token type (api, refresh, magic_link, email_verification, password_reset)
      * @param int $ttl TTL in seconds (default 24 hours)
      * @return msCustomerToken|null
      */
@@ -469,7 +496,7 @@ class AuthManager
      * Validate token and get customer
      *
      * @param string $tokenString Token string
-     * @param string $type Token type (api, refresh, magic_link, email_verification)
+     * @param string $type Token type (api, refresh, magic_link, email_verification, password_reset)
      * @return msCustomer|null
      */
     public function validateToken(string $tokenString, string $type = 'api'): ?msCustomer
@@ -595,6 +622,17 @@ class AuthManager
      */
     public function handleFailedLogin(msCustomer $customer): void
     {
+        if (CustomerAccess::isLockoutExpired($customer)) {
+            CustomerAccess::liftTimedLockout($customer);
+            $customer->set('failed_login_attempts', 0);
+        }
+
+        // Permanent manager block must keep empty blocked_until so ForgotPassword
+        // still treats the account as manually blocked (#747), not as a timed lockout.
+        if ((bool) $customer->get('is_blocked') && !CustomerAccess::hasTimedLockout($customer)) {
+            return;
+        }
+
         $maxAttempts = (int)$this->modx->getOption('ms3_customer_max_login_attempts', null, 5);
         $blockDuration = (int)$this->modx->getOption('ms3_customer_block_duration', null, 3600);
 

@@ -4,10 +4,13 @@ namespace MiniShop3\Controllers\Api\Manager;
 
 use MiniShop3\Controllers\Auth\PasswordAuthProvider;
 use MiniShop3\Model\msCustomer;
+use MiniShop3\Model\msCustomerGroup;
 use MiniShop3\Router\HttpStatus;
 use MiniShop3\Router\Response;
 use MiniShop3\Services\Customer\AuthManager;
+use MiniShop3\Services\Customer\CustomerAccess;
 use MiniShop3\Services\Grid\ManagerListFilterPolicy;
+use MiniShop3\Services\Grid\RelationSqlFragments;
 use MODX\Revolution\modX;
 
 /**
@@ -171,15 +174,35 @@ class CustomersController
             return Response::error('Customer not found', HttpStatus::NOT_FOUND)->getData();
         }
 
-        $allowedFields = ['first_name', 'last_name', 'email', 'phone', 'is_active', 'is_blocked'];
+        $wasBlocked = (bool) $customer->get('is_blocked');
+
+        $allowedFields = ['first_name', 'last_name', 'email', 'phone', 'is_active', 'is_blocked', 'customer_group_id'];
 
         foreach ($allowedFields as $field) {
-            if (isset($data[$field])) {
-                $value = $data[$field];
-                if ($field === 'email' && is_string($value)) {
-                    $value = AuthManager::normalizeEmail($value);
+            if (!array_key_exists($field, $data)) {
+                continue;
+            }
+
+            if ($field === 'customer_group_id') {
+                $groupResult = $this->resolveCustomerGroupAssignment($data['customer_group_id']);
+                if ($groupResult['error'] !== null) {
+                    return Response::error($groupResult['error'], HttpStatus::BAD_REQUEST)->getData();
                 }
-                $customer->set($field, $value);
+                $customer->set('customer_group_id', $groupResult['value']);
+                continue;
+            }
+
+            $value = $data[$field];
+            if ($field === 'email' && is_string($value)) {
+                $value = AuthManager::normalizeEmail($value);
+            }
+            $customer->set($field, $value);
+        }
+
+        if (array_key_exists('is_blocked', $data) && (bool) $customer->get('is_blocked') !== $wasBlocked) {
+            $customer->set('blocked_until', null);
+            if (!$customer->get('is_blocked')) {
+                $customer->set('failed_login_attempts', 0);
             }
         }
 
@@ -192,6 +215,12 @@ class CustomersController
 
         if (!$customer->save()) {
             return Response::error('Failed to save customer', HttpStatus::INTERNAL_SERVER_ERROR)->getData();
+        }
+
+        if (CustomerAccess::isAccessDenied($customer)) {
+            /** @var AuthManager $authManager */
+            $authManager = $this->modx->services->get('ms3_auth_manager');
+            $authManager->revokeTokens($customer);
         }
 
         return Response::success($this->formatCustomer($customer), 'Customer updated successfully')->getData();
@@ -327,6 +356,39 @@ class CustomersController
     }
 
     /**
+     * @return array{value: int|null, error: string|null}
+     */
+    protected function resolveCustomerGroupAssignment(mixed $raw): array
+    {
+        if ($raw === null || $raw === '' || $raw === 0 || $raw === '0') {
+            return ['value' => null, 'error' => null];
+        }
+
+        $groupId = (int) $raw;
+        if ($groupId <= 0) {
+            $this->modx->lexicon->load('minishop3:default');
+
+            return [
+                'value' => null,
+                'error' => (string) $this->modx->lexicon('ms3_err_customer_group_not_found'),
+            ];
+        }
+
+        /** @var msCustomerGroup|null $group */
+        $group = $this->modx->getObject(msCustomerGroup::class, $groupId);
+        if ($group === null || !(bool) $group->get('active')) {
+            $this->modx->lexicon->load('minishop3:default');
+
+            return [
+                'value' => null,
+                'error' => (string) $this->modx->lexicon('ms3_err_customer_group_not_found'),
+            ];
+        }
+
+        return ['value' => $groupId, 'error' => null];
+    }
+
+    /**
      * Format customer object for API response
      *
      * @param msCustomer $customer
@@ -340,6 +402,9 @@ class CustomersController
             'last_name' => $customer->get('last_name'),
             'email' => $customer->get('email'),
             'phone' => $customer->get('phone'),
+            'customer_group_id' => $customer->get('customer_group_id') !== null
+                ? (int) $customer->get('customer_group_id')
+                : null,
             'is_active' => (bool)$customer->get('is_active'),
             'is_blocked' => (bool)$customer->get('is_blocked'),
             'email_verified_at' => $customer->get('email_verified_at'),
@@ -421,7 +486,7 @@ class CustomersController
             }
         }
 
-        $customersTable = $this->modx->getTableName(msCustomer::class);
+        $customersTable = (string) $this->modx->getTableName(msCustomer::class);
 
         foreach ($relationFields as $fieldName => $config) {
             $relationTable = $config['resolvedTableName'] ?? $config['table'] ?? null;
@@ -433,31 +498,26 @@ class CustomersController
                 continue;
             }
 
+            $relationTable = RelationSqlFragments::stripIdentQuotes((string) $relationTable);
+
             // Fallback for configs saved before table prefix fix — can be removed
             // after all existing relation configs are re-saved via utility page
             $tablePrefix = $this->modx->config['table_prefix'] ?? '';
-            if ($tablePrefix !== ''
-                && !str_starts_with($relationTable, $tablePrefix)
-                && !str_starts_with($relationTable, '`')
-            ) {
+            if ($tablePrefix !== '' && !str_starts_with($relationTable, $tablePrefix)) {
                 $relationTable = $tablePrefix . $relationTable;
             }
 
-            if ($aggregation) {
-                $selectExpr = "{$aggregation}({$relationTable}.{$displayField})";
-            } else {
-                $selectExpr = "{$relationTable}.{$displayField}";
+            $sql = RelationSqlFragments::customerRelationAggregateSql(
+                $customersTable,
+                $relationTable,
+                (string) $foreignKey,
+                (string) $displayField,
+                is_string($aggregation) && $aggregation !== '' ? $aggregation : null,
+                $customerIds,
+            );
+            if ($sql === null) {
+                continue;
             }
-
-            $sql = "
-                SELECT
-                    {$customersTable}.id as customer_id,
-                    {$selectExpr} as field_value
-                FROM {$customersTable}
-                LEFT JOIN {$relationTable} ON {$relationTable}.{$foreignKey} = {$customersTable}.id
-                WHERE {$customersTable}.id IN (" . implode(',', $customerIds) . ")
-                GROUP BY {$customersTable}.id
-            ";
 
             $stmt = $this->modx->prepare($sql);
             $stmt->execute();
@@ -467,9 +527,10 @@ class CustomersController
                 $customerId = (int)$row['customer_id'];
                 $value = $row['field_value'];
 
-                if ($aggregation === 'COUNT') {
+                $aggUpper = is_string($aggregation) ? strtoupper($aggregation) : null;
+                if ($aggUpper === 'COUNT') {
                     $value = (int)$value;
-                } elseif (in_array($aggregation, ['SUM', 'AVG'])) {
+                } elseif (in_array($aggUpper, ['SUM', 'AVG'], true)) {
                     $value = (float)$value;
                 }
 

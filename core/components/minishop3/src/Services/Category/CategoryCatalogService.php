@@ -6,6 +6,9 @@ namespace MiniShop3\Services\Category;
 
 use MiniShop3\Model\msCategory;
 use MiniShop3\Services\Catalog\CatalogQuery;
+use MiniShop3\Services\Catalog\CatalogResolve;
+use MiniShop3\Services\Catalog\CatalogResourceGroupVisibility;
+use MiniShop3\Services\Seo\PublicSeoService;
 use MODX\Revolution\modX;
 use xPDO\Om\xPDOQuery;
 
@@ -34,6 +37,7 @@ class CategoryCatalogService
         'publishedon',
         'createdon',
         'editedon',
+        'searchable',
     ];
 
     /** @var list<string> */
@@ -125,6 +129,9 @@ class CategoryCatalogService
     }
 
     /**
+     * Query: context, include_hidden, include_content, include_breadcrumbs,
+     *        include_children, include_seo (default 1). List/tree: include_seo (default 0).
+     *
      * @param array<string, mixed> $params
      * @return array<string, mixed>|null
      */
@@ -150,15 +157,49 @@ class CategoryCatalogService
         }
 
         if (CatalogQuery::toBool($params['include_children'] ?? false)) {
-            $payload['children'] = $this->listDirectChildrenPayloads(
+            $children = $this->listDirectChildrenPayloads(
                 $categoryId,
                 $params,
                 $includeHidden,
                 CatalogQuery::resolveLimit($params),
             );
+            if (CatalogQuery::resolveBool($params, 'include_seo', true)) {
+                $children = $this->publicSeo()->attachSeoToCategoryList(
+                    $children,
+                    array_merge($params, ['include_seo' => 1]),
+                );
+            }
+            $payload['children'] = $children;
         }
 
-        return $payload;
+        return $this->publicSeo()->maybeAttachCategory($payload, $params);
+    }
+
+    /**
+     * Resolve category by alias OR uri (+ context). Same payload as getById().
+     *
+     * @param array<string, mixed> $params
+     */
+    public function resolveByLookup(
+        array $params,
+        string $field,
+        string $value,
+        string $context,
+    ): ?array {
+        $paramsWithContext = array_merge($params, ['context' => $context]);
+        $includeHidden = CatalogQuery::toBool($params['include_hidden'] ?? false);
+
+        $categoryId = match ($field) {
+            'alias' => $this->findIdByAlias($value, $paramsWithContext, $includeHidden),
+            'uri' => $this->findIdByUri($value, $paramsWithContext, $includeHidden),
+            default => null,
+        };
+
+        if ($categoryId === null) {
+            return null;
+        }
+
+        return $this->getById($categoryId, $paramsWithContext);
     }
 
     /**
@@ -188,8 +229,13 @@ class CategoryCatalogService
         $this->applySort($listQuery, $params);
         $listQuery->limit($limit, $offset);
 
+        $items = $this->publicSeo()->attachSeoToCategoryList(
+            $this->fetchFormattedCategories($listQuery, $includeContent),
+            $params,
+        );
+
         return [
-            'items' => $this->fetchFormattedCategories($listQuery, $includeContent),
+            'items' => $items,
             'total' => $total,
             'limit' => $limit,
             'offset' => $offset,
@@ -214,7 +260,10 @@ class CategoryCatalogService
         [$byId, $childrenByParent] = $this->indexCategoryRows($rows);
 
         return [
-            'items' => self::buildTreeNodes($byId, $childrenByParent, $parent, $depth),
+            'items' => $this->publicSeo()->attachSeoToCategoryTree(
+                self::buildTreeNodes($byId, $childrenByParent, $parent, $depth),
+                $params,
+            ),
         ];
     }
 
@@ -247,15 +296,57 @@ class CategoryCatalogService
      */
     private function findVisibleCategory(int $categoryId, array $params, bool $includeHidden): ?msCategory
     {
-        $criteria = $this->publicCriteria(array_merge(
-            ['id' => $categoryId],
-            $this->visibilityCriteria($params, $includeHidden),
-        ));
+        if ($categoryId <= 0) {
+            return null;
+        }
+
+        $c = $this->createVisibleCategoriesQuery($params, $includeHidden, ['id' => $categoryId]);
 
         /** @var msCategory|null $category */
-        $category = $this->modx->getObject(msCategory::class, $criteria);
+        $category = $this->modx->getObject(msCategory::class, $c);
 
         return $category ?: null;
+    }
+
+    /**
+     * @param array<string, mixed> $params
+     */
+    private function findIdByAlias(string $alias, array $params, bool $includeHidden): ?int
+    {
+        return CatalogResolve::findUniqueId(
+            $this->modx,
+            msCategory::class,
+            $this->lookupCriteria(['alias' => $alias], $params, $includeHidden),
+        );
+    }
+
+    /**
+     * @param array<string, mixed> $params
+     */
+    private function findIdByUri(string $uri, array $params, bool $includeHidden): ?int
+    {
+        foreach (CatalogResolve::uriLookupVariants($uri) as $variant) {
+            $id = CatalogResolve::findUniqueId(
+                $this->modx,
+                msCategory::class,
+                $this->lookupCriteria(['uri' => $variant], $params, $includeHidden),
+            );
+            if ($id !== null) {
+                return $id;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @param array<string, mixed> $extra
+     * @param array<string, mixed> $params
+     * @return array<string, mixed>
+     */
+    private function lookupCriteria(array $extra, array $params, bool $includeHidden): array
+    {
+        return $this->publicCriteria(array_merge($extra, $this->visibilityCriteria($params, $includeHidden)));
     }
 
     /**
@@ -420,12 +511,7 @@ class CategoryCatalogService
         $ids = array_reverse($ids);
         $ids[] = (int) $category->get('id');
 
-        $criteria = $this->publicCriteria(array_merge(
-            ['id:IN' => $ids],
-            $this->visibilityCriteria($params, $includeHidden),
-        ));
-
-        $query = $this->modx->newQuery(msCategory::class, $criteria);
+        $query = $this->createVisibleCategoriesQuery($params, $includeHidden, ['id:IN' => $ids]);
         $query->select($this->modx->getSelectColumns(msCategory::class, 'msCategory', '', self::RESOURCE_FIELDS));
 
         /** @var array<int, array<string, mixed>> $byId */
@@ -460,8 +546,15 @@ class CategoryCatalogService
         $c = $this->modx->newQuery(msCategory::class);
         $c->where($this->publicCriteria($extra));
         $this->applyVisibilityFilters($c, $params, $includeHidden);
+        $context = $this->resolveContext($params);
+        $this->resourceGroupVisibility()->applyForRequest($c, 'msCategory', $context);
 
         return $c;
+    }
+
+    private function resourceGroupVisibility(): CatalogResourceGroupVisibility
+    {
+        return new CatalogResourceGroupVisibility($this->modx);
     }
 
     /**
@@ -515,9 +608,17 @@ class CategoryCatalogService
         }
     }
 
+    private function publicSeo(): PublicSeoService
+    {
+        /** @var PublicSeoService $service */
+        $service = $this->modx->services->get('ms3_public_seo');
+
+        return $service;
+    }
+
     private function castResourceField(string $field, mixed $value): mixed
     {
-        if ($field === 'hidemenu') {
+        if ($field === 'hidemenu' || $field === 'searchable') {
             return (bool) $value;
         }
         if (in_array($field, self::INT_FIELDS, true)) {

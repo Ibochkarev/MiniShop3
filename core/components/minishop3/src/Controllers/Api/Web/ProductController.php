@@ -6,6 +6,8 @@ namespace MiniShop3\Controllers\Api\Web;
 
 use MiniShop3\Router\HttpStatus;
 use MiniShop3\Router\Response;
+use MiniShop3\Services\Catalog\CatalogContextException;
+use MiniShop3\Services\Catalog\CatalogResolve;
 use MiniShop3\Services\Product\ProductCatalogFilterException;
 use MiniShop3\Services\Product\ProductCatalogService;
 use MiniShop3\Services\Product\ProductFacetService;
@@ -29,6 +31,9 @@ class ProductController
     /**
      * GET /api/v1/product/get/{id}
      *
+     * Query: context, include_images (0|1, default 0 — omit images[]; name→alt, no DB alt),
+     *        include_seo (default 1).
+     *
      * @param array<string, mixed> $params
      */
     public function get(array $params = []): Response
@@ -42,7 +47,51 @@ class ProductController
             );
         }
 
-        $product = $this->catalog()->getById($productId, $params);
+        try {
+            $product = $this->catalog()->getById($productId, $params);
+        } catch (CatalogContextException $e) {
+            return $this->catalogParamBadRequest($e);
+        }
+
+        if ($product === null) {
+            return Response::error(
+                $this->modx->lexicon('ms3_err_product_nf'),
+                HttpStatus::NOT_FOUND
+            );
+        }
+
+        return Response::success($product);
+    }
+
+    /**
+     * GET /api/v1/product/get?alias=…|uri=…&context=…
+     *
+     * @param array<string, mixed> $params
+     */
+    public function resolve(array $params = []): Response
+    {
+        try {
+            $parsed = CatalogResolve::parseLookup(
+                $params,
+                (string) ($this->modx->context->key ?? 'web'),
+            );
+        } catch (CatalogContextException $e) {
+            return $this->catalogParamBadRequest($e);
+        }
+
+        if (!$parsed['ok']) {
+            return Response::error(
+                $this->modx->lexicon(CatalogResolve::lookupErrorLexiconKey($parsed['error'])),
+                HttpStatus::BAD_REQUEST
+            );
+        }
+
+        $product = $this->catalog()->resolveByLookup(
+            $params,
+            $parsed['field'],
+            $parsed['value'],
+            $parsed['context'],
+        );
 
         if ($product === null) {
             return Response::error(
@@ -59,7 +108,8 @@ class ProductController
      *
      * Query: parent|category, parents, nested, price_min, price_max, in_stock, stock_min,
      *        vendor_id, new, popular, favorite, options (JSON),
-     *        limit, offset|page, sort, dir, query, context, include_options, include_content
+     *        limit, offset|page, sort, dir, query, context, include_options, include_content,
+     *        include_images (0|1, default 0, cap 10 files per item), include_seo (default 0)
      *
      * @param array<string, mixed> $params Route + query params (Router merges $_GET)
      */
@@ -67,11 +117,8 @@ class ProductController
     {
         try {
             $result = $this->catalog()->getList($params);
-        } catch (ProductCatalogFilterException $e) {
-            return Response::error(
-                $this->modx->lexicon($e->getLexiconKey()),
-                HttpStatus::BAD_REQUEST
-            );
+        } catch (ProductCatalogFilterException|CatalogContextException $e) {
+            return $this->catalogParamBadRequest($e);
         }
 
         return Response::success($result);
@@ -89,14 +136,53 @@ class ProductController
     {
         try {
             $result = $this->facets()->getFilters($params);
-        } catch (ProductCatalogFilterException $e) {
+        } catch (ProductCatalogFilterException|CatalogContextException $e) {
+            return $this->catalogParamBadRequest($e);
+        }
+
+        return Response::success($result);
+    }
+
+    /**
+     * GET /api/v1/product/{id}/images
+     *
+     * Same gallery serializer as include_images=1 on get. 404 if the product is not storefront-visible.
+     *
+     * @param array<string, mixed> $params
+     */
+    public function getImages(array $params = []): Response
+    {
+        $productId = (int) ($params['id'] ?? 0);
+
+        if ($productId <= 0) {
             return Response::error(
-                $this->modx->lexicon($e->getLexiconKey()),
+                $this->modx->lexicon('ms3_err_product_id_ns'),
                 HttpStatus::BAD_REQUEST
             );
         }
 
+        try {
+            $result = $this->catalog()->getPublicImages($productId, $params);
+        } catch (CatalogContextException $e) {
+            return $this->catalogParamBadRequest($e);
+        }
+
+        if ($result === null) {
+            return Response::error(
+                $this->modx->lexicon('ms3_err_product_nf'),
+                HttpStatus::NOT_FOUND
+            );
+        }
+
         return Response::success($result);
+    }
+
+    private function catalogParamBadRequest(ProductCatalogFilterException|CatalogContextException $e): Response
+    {
+        return Response::error(
+            $this->modx->lexicon($e->getLexiconKey()),
+            HttpStatus::BAD_REQUEST
+        );
     }
 
     private function catalog(): ProductCatalogService

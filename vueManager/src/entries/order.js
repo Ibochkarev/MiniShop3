@@ -5,12 +5,8 @@
 import '../scss/primevue.scss'
 import 'primeicons/primeicons.css'
 
-import Aura from '@primeuix/themes/aura'
-import { getPrimeVueLocale } from '@vuetools/usePrimeVueLocale'
 import { createPinia } from 'pinia'
-import PrimeVue from 'primevue/config'
-import ConfirmationService from 'primevue/confirmationservice'
-import ToastService from 'primevue/toastservice'
+import { ConfirmationService, PrimeVue, ToastService } from 'primevue'
 import { createApp } from 'vue'
 
 import OrderView from '../components/OrderView.vue'
@@ -19,6 +15,7 @@ import {
   snapshotOrderTabConfigForQueue,
   validateOrderPluginTabConfig,
 } from '../utils/orderPluginTab.js'
+import { getManagerPrimeVueConfig } from '../utils/primevueTheme.js'
 
 /**
  * Plugin registry for third-party order manager tabs (Vue / ExtJS). See GitHub #166.
@@ -26,7 +23,7 @@ import {
  * pre-mount entries are queued (snapshotted) and flushed in `_onMounted(instance)`.
  *
  * Tab config fields:
- * - `key` (string, required) — unique id; must not be info|products|address|history
+ * - `key` (string, required) — unique id; must not be info|products|address|ms3_shipment|history
  * - `title` (string, required) — header label
  * - `type` — `'vue'` (default) or `'extjs'`
  * - `component` — Vue: options object (imported SFC) or registered component name string
@@ -46,8 +43,8 @@ import {
  *
  * @example Vue tab (prefer a component definition from your bundle; string names need app.component())
  * window.MS3OrderTabsRegistry.register({
- *   key: 'tracking',
- *   title: 'Tracking',
+ *   key: 'fulfillment',
+ *   title: 'Fulfillment',
  *   type: 'vue',
  *   component: MyTrackingTab,
  *   position: 10,
@@ -135,15 +132,7 @@ function createVueApp() {
   const pinia = createPinia()
   app.use(pinia)
 
-  app.use(PrimeVue, {
-    theme: {
-      preset: Aura,
-      options: {
-        darkModeSelector: 'none',
-      },
-    },
-    locale: getPrimeVueLocale(),
-  })
+  app.use(PrimeVue, getManagerPrimeVueConfig())
 
   app.use(ConfirmationService)
   app.use(ToastService)

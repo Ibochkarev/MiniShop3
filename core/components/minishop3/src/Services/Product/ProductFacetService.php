@@ -8,6 +8,9 @@ use MiniShop3\Model\msCategoryOption;
 use MiniShop3\Model\msOption;
 use MiniShop3\Model\msProductOption;
 use MiniShop3\Model\msVendor;
+use MiniShop3\Services\Catalog\CatalogContextException;
+use MiniShop3\Services\Catalog\CatalogQuery;
+use MiniShop3\Services\Catalog\CatalogResourceGroupVisibility;
 use MiniShop3\Services\Category\CategoryProductScopeService;
 use MODX\Revolution\modX;
 use xPDO\Om\xPDOQuery;
@@ -45,9 +48,16 @@ final class ProductFacetService
      * }
      *
      * @throws ProductCatalogFilterException
+     * @throws CatalogContextException
      */
     public function getFilters(array $params): array
     {
+        // Validate context before cache lookup so invalid keys never hit facet cache (#658).
+        $params['context'] = CatalogQuery::resolveContext(
+            $params,
+            (string) ($this->modx->context->key ?? 'web'),
+        );
+
         $filters = ProductCatalogFilterParser::parse($params);
         $includePrice = ProductCatalogService::toBool($params['include_price'] ?? true);
         $includeVendors = ProductCatalogService::toBool($params['include_vendors'] ?? false);
@@ -85,6 +95,16 @@ final class ProductFacetService
         }
 
         return $result;
+    }
+
+    public function clearCache(): bool
+    {
+        $cacheManager = $this->modx->cacheManager;
+        if (!is_object($cacheManager)) {
+            return false;
+        }
+
+        return $cacheManager->clean($this->cacheOptions());
     }
 
     /**
@@ -389,8 +409,10 @@ final class ProductFacetService
         bool $includePrice,
         bool $includeVendors,
     ): string {
+        $context = (string) ($params['context'] ?? '');
         $payload = [
-            'context' => (string) ($params['context'] ?? ''),
+            'context' => $context,
+            'resource_groups' => $this->resourceGroupVisibility()->appliesToCacheKeyForRequest($context),
             'parent' => (int) ($params['parent'] ?? $params['category'] ?? 0),
             'parents' => $filters->parentIds,
             'nested' => $filters->nested,
@@ -467,5 +489,10 @@ final class ProductFacetService
     private function filterApplier(): ProductCatalogFilterApplier
     {
         return new ProductCatalogFilterApplier($this->modx, $this->scope());
+    }
+
+    private function resourceGroupVisibility(): CatalogResourceGroupVisibility
+    {
+        return new CatalogResourceGroupVisibility($this->modx);
     }
 }

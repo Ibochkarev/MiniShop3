@@ -6,6 +6,8 @@ namespace MiniShop3\Controllers\Api\Web;
 
 use MiniShop3\Router\HttpStatus;
 use MiniShop3\Router\Response;
+use MiniShop3\Services\Catalog\CatalogContextException;
+use MiniShop3\Services\Catalog\CatalogResolve;
 use MiniShop3\Services\Category\CategoryCatalogService;
 use MODX\Revolution\modX;
 
@@ -27,6 +29,9 @@ class CategoryController
     /**
      * GET /api/v1/category/get/{id}
      *
+     * Query: context, include_hidden, include_content, include_breadcrumbs,
+     *        include_children, include_seo (default 1).
+     *
      * @param array<string, mixed> $params
      */
     public function get(array $params = []): Response
@@ -40,7 +45,51 @@ class CategoryController
             );
         }
 
-        $category = $this->catalog()->getById($categoryId, $params);
+        try {
+            $category = $this->catalog()->getById($categoryId, $params);
+        } catch (CatalogContextException $e) {
+            return $this->catalogContextBadRequest($e);
+        }
+
+        if ($category === null) {
+            return Response::error(
+                $this->modx->lexicon('ms3_err_category_nf'),
+                HttpStatus::NOT_FOUND
+            );
+        }
+
+        return Response::success($category);
+    }
+
+    /**
+     * GET /api/v1/category/get?alias=…|uri=…&context=…
+     *
+     * @param array<string, mixed> $params
+     */
+    public function resolve(array $params = []): Response
+    {
+        try {
+            $parsed = CatalogResolve::parseLookup(
+                $params,
+                (string) ($this->modx->context->key ?? 'web'),
+            );
+        } catch (CatalogContextException $e) {
+            return $this->catalogContextBadRequest($e);
+        }
+
+        if (!$parsed['ok']) {
+            return Response::error(
+                $this->modx->lexicon(CatalogResolve::lookupErrorLexiconKey($parsed['error'])),
+                HttpStatus::BAD_REQUEST
+            );
+        }
+
+        $category = $this->catalog()->resolveByLookup(
+            $params,
+            $parsed['field'],
+            $parsed['value'],
+            $parsed['context'],
+        );
 
         if ($category === null) {
             return Response::error(
@@ -56,25 +105,45 @@ class CategoryController
      * GET /api/v1/category/list
      *
      * Query: parent, limit, offset|page, sort, dir, context,
-     *        include_hidden, include_content
+     *        include_hidden, include_content, include_seo (default 0)
      *
      * @param array<string, mixed> $params
      */
     public function getList(array $params = []): Response
     {
-        return Response::success($this->catalog()->getList($params));
+        try {
+            $result = $this->catalog()->getList($params);
+        } catch (CatalogContextException $e) {
+            return $this->catalogContextBadRequest($e);
+        }
+
+        return Response::success($result);
     }
 
     /**
      * GET /api/v1/category/tree
      *
-     * Query: parent, depth, context, include_hidden, sort, dir
+     * Query: parent, depth, context, include_hidden, sort, dir, include_seo (default 0)
      *
      * @param array<string, mixed> $params
      */
     public function getTree(array $params = []): Response
     {
-        return Response::success($this->catalog()->getTree($params));
+        try {
+            $result = $this->catalog()->getTree($params);
+        } catch (CatalogContextException $e) {
+            return $this->catalogContextBadRequest($e);
+        }
+
+        return Response::success($result);
+    }
+
+    private function catalogContextBadRequest(CatalogContextException $e): Response
+    {
+        return Response::error(
+            $this->modx->lexicon($e->getLexiconKey()),
+            HttpStatus::BAD_REQUEST
+        );
     }
 
     private function catalog(): CategoryCatalogService

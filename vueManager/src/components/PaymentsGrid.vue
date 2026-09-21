@@ -1,24 +1,6 @@
 <script setup>
 import { useLexicon } from '@vuetools/useLexicon'
-import Badge from 'primevue/badge'
-import Button from 'primevue/button'
-import Card from 'primevue/card'
-import Checkbox from 'primevue/checkbox'
-import Column from 'primevue/column'
-import ConfirmDialog from 'primevue/confirmdialog'
-import DataTable from 'primevue/datatable'
-import Dialog from 'primevue/dialog'
-import InputText from 'primevue/inputtext'
-import Tab from 'primevue/tab'
-import TabList from 'primevue/tablist'
-import TabPanel from 'primevue/tabpanel'
-import TabPanels from 'primevue/tabpanels'
-import Tabs from 'primevue/tabs'
-import Textarea from 'primevue/textarea'
-import Toast from 'primevue/toast'
-import ToggleSwitch from 'primevue/toggleswitch'
-import { useConfirm } from 'primevue/useconfirm'
-import { useToast } from 'primevue/usetoast'
+import { Badge, Button, Card, Checkbox, Column, ConfirmDialog, DataTable, Dialog, InputText, Tab, TabList, TabPanel, TabPanels, Tabs, Textarea, Toast, ToggleSwitch, useToast } from 'primevue'
 import { computed, onMounted, ref } from 'vue'
 import draggable from 'vuedraggable'
 
@@ -30,14 +12,20 @@ import { useSortableList } from '../composables/useSortableList.js'
 import request from '../request.js'
 import { resolveAddCostPriceBadgeKind } from '../utils/addCostPriceBadgeKind.js'
 import { formatValue, getDisplayName, normalizeImagePath } from '../utils/displayFormatters.js'
+import { applyDeleteConfirmDefaults, gridDeleteAction } from '../utils/gridDeleteAction.js'
+import { getPrimarySaveSeverity } from '../utils/primevueTheme.js'
 import ActionsColumn from './ActionsColumn.vue'
 import FileBrowser from './FileBrowser.vue'
 
 const toast = useToast()
-const confirm = useConfirm()
 const { _ } = useLexicon()
+const primarySaveSeverity = getPrimarySaveSeverity()
 
 const CONFIRM_GROUP = 'settings-payments'
+
+const PAYMENT_GRID_DELETE_ACTION = gridDeleteAction({
+  confirmMessage: 'payment_delete_confirm_message',
+})
 
 // Bulk selection
 const {
@@ -175,14 +163,7 @@ function getFallbackColumns() {
       width: '7.5rem',
       actions: [
         { name: 'edit', handler: 'edit', icon: 'pi-pencil', label: 'edit' },
-        {
-          name: 'delete',
-          handler: 'delete',
-          icon: 'pi-trash',
-          label: 'delete',
-          severity: 'danger',
-          confirm: false,
-        },
+        { ...PAYMENT_GRID_DELETE_ACTION },
       ],
     },
   ]
@@ -310,38 +291,27 @@ async function savePayment() {
 }
 
 /**
- * Delete payment with confirmation
+ * Delete payment (called after confirmation in ActionsColumn / useActions)
  */
-function deletePayment(payment) {
-  confirm.require({
-    group: CONFIRM_GROUP,
-    message: _('payment_delete_confirm_message').replace('{name}', payment.name),
-    header: _('confirm_delete'),
-    icon: 'pi pi-exclamation-triangle',
-    acceptLabel: _('delete'),
-    rejectLabel: _('cancel'),
-    acceptClass: 'p-button-danger',
-    accept: async () => {
-      try {
-        await request.delete(`/api/mgr/payments/${payment.id}`)
-        toast.add({
-          severity: 'success',
-          summary: _('success'),
-          detail: _('payment_deleted'),
-          life: 3000,
-        })
-        loadPayments()
-      } catch (error) {
-        console.error('[PaymentsGrid] Error deleting payment:', error)
-        toast.add({
-          severity: 'error',
-          summary: _('error'),
-          detail: error.message || _('error_deleting_data'),
-          life: 5000,
-        })
-      }
-    },
-  })
+async function deletePayment(payment) {
+  try {
+    await request.delete(`/api/mgr/payments/${payment.id}`)
+    toast.add({
+      severity: 'success',
+      summary: _('success'),
+      detail: _('payment_deleted'),
+      life: 3000,
+    })
+    await loadPayments()
+  } catch (error) {
+    console.error('[PaymentsGrid] Error deleting payment:', error)
+    toast.add({
+      severity: 'error',
+      summary: _('error'),
+      detail: error.message || _('error_deleting_data'),
+      life: 5000,
+    })
+  }
 }
 
 /**
@@ -359,15 +329,15 @@ function clearFilters() {
   resetPageAndLoad()
 }
 
-/**
- * Get actions config for ActionsColumn
- */
 function getActionsConfig(column) {
   const config = column.actions || []
-  return config.map(action => ({
-    ...action,
-    label: _(action.label) || action.label,
-  }))
+  return applyDeleteConfirmDefaults(
+    config.map(action => ({
+      ...action,
+      label: _(action.label) || action.label,
+    })),
+    { confirmMessage: 'payment_delete_confirm_message' }
+  )
 }
 
 /**
@@ -714,7 +684,7 @@ onMounted(async () => {
 
       <template #footer>
         <Button :label="_('cancel')" icon="pi pi-times" severity="secondary" @click="close" />
-        <Button :label="_('save')" icon="pi pi-check" :loading="saving" @click="savePayment" />
+        <Button :label="_('save')" icon="pi pi-check" :severity="primarySaveSeverity" :loading="saving" @click="savePayment" />
       </template>
     </Dialog>
   </div>

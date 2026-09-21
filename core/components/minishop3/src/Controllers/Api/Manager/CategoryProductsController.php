@@ -8,6 +8,7 @@ use MiniShop3\Router\HttpStatus;
 use MiniShop3\Router\Response;
 use MiniShop3\Services\Category\CategoryProductActionPermissions;
 use MiniShop3\Services\Category\CategoryProductDocumentPolicy;
+use MiniShop3\Services\Category\CategoryProductMenuindexService;
 use MiniShop3\Services\Category\CategoryProductScopeService;
 use MiniShop3\Services\Category\CategoryProductsListService;
 use MiniShop3\Services\FilterConfigManager;
@@ -165,6 +166,7 @@ class CategoryProductsController
         $policyDenied = 0;
 
         $scope = $this->scopeService();
+        $menuindexService = new CategoryProductMenuindexService($this->modx);
 
         foreach ($items as $item) {
             $productId = (int) ($item['id'] ?? 0);
@@ -186,8 +188,7 @@ class CategoryProductsController
                 continue;
             }
 
-            $product->set('menuindex', $menuindex);
-            if ($product->save()) {
+            if ($menuindexService->setMenuindexInCategory($productId, $categoryId, $menuindex)) {
                 $updated++;
             }
         }
@@ -759,6 +760,8 @@ class CategoryProductsController
      */
     protected function getDefaultFilters(): array
     {
+        $this->modx->lexicon->load('minishop3:vue');
+
         return [
             'query' => [
                 'type' => 'text',
@@ -772,8 +775,8 @@ class CategoryProductsController
                 'label' => 'published',
                 'placeholder' => 'all',
                 'options' => [
-                    ['label' => 'Да', 'value' => 1],
-                    ['label' => 'Нет', 'value' => 0],
+                    ['label' => $this->modx->lexicon('ms3_yes'), 'value' => 1],
+                    ['label' => $this->modx->lexicon('ms3_no'), 'value' => 0],
                 ],
                 'width' => '120px',
                 'position' => 20,

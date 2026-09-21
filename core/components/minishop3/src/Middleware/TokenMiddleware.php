@@ -31,21 +31,33 @@ class TokenMiddleware implements MiddlewareInterface
 {
     private modX $modx;
 
-    /** @var list<string> Prefixes matched with str_starts_with; missing token skips auto-mint */
+    /** @var list<string> Prefixes matched exactly or as path segment; missing token skips auto-mint */
     private array $publicRoutes = [
-        '/api/v1/product/get/',
+        '/api/v1/product/get',
         '/api/v1/product/list',
         '/api/v1/product/filters',
-        '/api/v1/category/get/',
+        '/api/v1/category/get',
         '/api/v1/category/list',
         '/api/v1/category/tree',
-        '/api/v1/delivery/get/',
+        '/api/v1/delivery/get',
         '/api/v1/delivery/list',
-        '/api/v1/payment/get/',
+        '/api/v1/delivery/webhook',
+        '/api/v1/payment/get',
         '/api/v1/payment/list',
+        '/api/v1/payment/webhook/',
         '/api/v1/customer/token/get',
         '/api/v1/customer/logout',
         '/api/v1/health',
+    ];
+
+    /**
+     * Glob patterns (`*` = one path segment). Keeps /{id}/images public without
+     * opening the whole `/api/v1/product/*` group via a prefix (#584).
+     *
+     * @var list<string>
+     */
+    private array $publicRoutePatterns = [
+        '/api/v1/product/*/images',
     ];
 
     /**
@@ -62,6 +74,11 @@ class TokenMiddleware implements MiddlewareInterface
      */
     public function handle(array $params)
     {
+        // CORS preflight must not mint tokens or touch session (#634).
+        if (($_SERVER['REQUEST_METHOD'] ?? '') === 'OPTIONS') {
+            return null;
+        }
+
         $this->stripQueryStringApiTokens();
 
         // Cookie injection: make cookie token available via $_REQUEST for backward compat
@@ -196,13 +213,42 @@ class TokenMiddleware implements MiddlewareInterface
             $route = preg_replace('#^/assets/components/minishop3/api\.php#', '', $path);
         }
 
+        $route = $this->normalizePublicPath((string) $route);
+
         foreach ($this->publicRoutes as $publicRoute) {
-            if (str_starts_with($route, $publicRoute)) {
+            if ($route === $publicRoute || str_starts_with($route, $publicRoute . '/')) {
+                return true;
+            }
+        }
+
+        foreach ($this->publicRoutePatterns as $pattern) {
+            if (self::matchesSegmentPattern($route, $pattern)) {
                 return true;
             }
         }
 
         return false;
+    }
+
+    private function normalizePublicPath(string $route): string
+    {
+        $qPos = strpos($route, '?');
+        if ($qPos !== false) {
+            $route = substr($route, 0, $qPos);
+        }
+
+        if ($route !== '/') {
+            $route = rtrim($route, '/');
+        }
+
+        return $route;
+    }
+
+    private static function matchesSegmentPattern(string $path, string $pattern): bool
+    {
+        $regex = '#^' . str_replace('\\*', '[^/]+', preg_quote($pattern, '#')) . '$#';
+
+        return (bool) preg_match($regex, $path);
     }
 
     /**
